@@ -11,6 +11,7 @@
 #include "viewer/MathObjectHandler.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QApplication>
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QElapsedTimer>
@@ -487,7 +488,39 @@ void MarkdownView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton && copyCodeAt(event->pos()))
         return;
+    if (event->button() == Qt::LeftButton) {
+        m_pressPosition = event->pos();
+        m_hasPressPosition = true;
+    }
     QTextBrowser::mousePressEvent(event);
+}
+
+void MarkdownView::mouseReleaseEvent(QMouseEvent *event)
+{
+    const bool hadPress = m_hasPressPosition;
+    const QPoint pressedAt = m_pressPosition;
+    m_hasPressPosition = false;
+
+    // A drag is a selection, not a jump; a link click belongs to the anchor
+    // handler; and the copy button already acted on the press.
+    if (event->button() == Qt::LeftButton && hadPress && anchorAt(event->pos()).isEmpty()
+        && (event->pos() - pressedAt).manhattanLength() <= QApplication::startDragDistance()) {
+        const int line = sourceLineAt(event->pos());
+        if (line >= 0)
+            emit sourceLineActivated(line);
+    }
+
+    QTextBrowser::mouseReleaseEvent(event);
+}
+
+int MarkdownView::sourceLineAt(const QPoint &viewportPos) const
+{
+    const QTextBlock block = cursorForPosition(viewportPos).block();
+    if (!block.isValid())
+        return -1;
+
+    const QVariant line = block.blockFormat().property(MarkdownBuilder::sourceLineKey);
+    return line.isValid() ? line.toInt() : -1;
 }
 
 void MarkdownView::leaveEvent(QEvent *event)

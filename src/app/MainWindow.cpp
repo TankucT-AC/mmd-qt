@@ -6,7 +6,7 @@
 #include "app/FileTreePanel.h"
 #include "app/FindController.h"
 #include "app/OutlinePanel.h"
-#include "app/ScrollSync.h"
+#include "app/SidebarTitleBar.h"
 #include "core/FileDocument.h"
 #include "core/SystemThemeProvider.h"
 #include "core/ThemeManager.h"
@@ -178,7 +178,12 @@ void MainWindow::buildUi()
         m_viewer->scheduleRerender();
     });
     connect(m_viewer, &MarkdownView::rendered, this, &MainWindow::updateRenderStatus);
-    m_scrollSync = new ScrollSync(m_editor, m_viewer, this);
+
+    // Click-to-source: a click in the preview sends the editor's caret to the
+    // line it came from (Zed-style). The two panes scroll independently on
+    // purpose: rendered and source heights do not line up, so keeping them in
+    // step by scroll fraction only ever disagrees with the reader.
+    connect(m_viewer, &MarkdownView::sourceLineActivated, m_editor, &MarkdownEditor::gotoSourceLine);
 
     buildSidebar();
 
@@ -199,6 +204,8 @@ void MainWindow::buildSidebar()
     m_sidebar = new QDockWidget(tr("Sidebar"), this);
     m_sidebar->setObjectName(QStringLiteral("sidebar"));
     m_sidebar->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_sidebarTitleBar = new SidebarTitleBar(m_sidebar, tr("Sidebar"), m_sidebar);
+    m_sidebar->setTitleBarWidget(m_sidebarTitleBar);
     m_sidebar->setWidget(tabs);
     addDockWidget(Qt::LeftDockWidgetArea, m_sidebar);
     resizeDocks({m_sidebar}, {240}, Qt::Horizontal);
@@ -308,6 +315,13 @@ void MainWindow::buildMenus()
 void MainWindow::applyTheme(const ThemeDefinition &theme)
 {
     QApplication::setPalette(theme.palette);
+
+    // The dock separator is a thick bevel by default; a hairline keeps the
+    // sidebar and the editor reading as two flat panes.
+    setStyleSheet(QStringLiteral("QMainWindow::separator { background: %1; width: 1px; height: 1px; }").arg(theme.markdown.rule.name()));
+    if (m_sidebarTitleBar)
+        m_sidebarTitleBar->setTheme(theme);
+
     m_editor->setTheme(theme);
 
     RenderStyle style = m_viewer->renderStyle();
@@ -330,7 +344,10 @@ void MainWindow::applyFileContent(const QString &content, const QString &path)
     m_viewer->setBaseDir(path.isEmpty() ? QString() : QFileInfo(path).absolutePath());
     m_editor->setMarkdown(content);
     m_editor->document()->setModified(false);
+    // Opening a file is not typing: skip the debounce and render once now, so
+    // the preview is never left stale for the length of a typing pause.
     m_viewer->setMarkdown(content);
+    m_viewer->renderNow();
     m_filesPanel->setCurrentFile(path);
     updateStatusBar();
     updateWindowTitle();

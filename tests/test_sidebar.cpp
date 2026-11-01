@@ -6,16 +6,25 @@
 #include "app/FileTreePanel.h"
 #include "app/MainWindow.h"
 #include "app/OutlinePanel.h"
+#include "core/Outline.h"
 #include "editor/MarkdownEditor.h"
 #include "viewer/MarkdownView.h"
 
+#include <QAbstractButton>
+#include <QAction>
+#include <QApplication>
+#include <QDockWidget>
 #include <QFile>
 #include <QFileSystemModel>
 #include <QScrollBar>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTextBlock>
+#include <QTextCursor>
 #include <QTreeView>
 #include <QTreeWidget>
+
+#include <functional>
 
 class SidebarTest : public QObject
 {
@@ -29,6 +38,10 @@ private slots:
     void fileTreeOpensTheClickedFile();
     void windowOutlineFollowsTheDocument();
     void outlineClickScrollsThePreview();
+    void outlineClickLandsOnTheClickedSection();
+    void clickingThePreviewMovesTheEditorCaret();
+    void theSidebarSeparatorIsAHairline();
+    void theSidebarTitleBarHasUsableButtons();
 };
 
 void SidebarTest::outlineNestsByLevel()
@@ -192,6 +205,139 @@ void SidebarTest::outlineClickScrollsThePreview()
     QVERIFY(window.viewer()->verticalScrollBar()->value() > before);
     // The section the reader is now under is marked in the outline.
     QCOMPARE(tree->currentItem()->text(0), QStringLiteral("Key features"));
+}
+
+void SidebarTest::outlineClickLandsOnTheClickedSection()
+{
+    MainWindow window;
+    window.resize(900, 400);
+    window.show();
+    window.viewer()->setRenderInterval(0);
+
+    // A document whose level-1 heading sits in the middle, the way a real one
+    // does: the tree nests everything after it underneath, and a click on a row
+    // has to land on that row's own heading -- not the next one, which is what
+    // the (now removed) proportional scroll synchroniser used to cause.
+    QString markdown = QStringLiteral("# Introduction\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("filler %1\n\n").arg(i);
+    markdown += QStringLiteral("# Heading level 1\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("more filler %1\n\n").arg(i);
+    markdown += QStringLiteral("## Section two\n\nbody\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("tail %1\n\n").arg(i);
+    markdown += QStringLiteral("## Section three\n\nbody\n");
+
+    window.editor()->setMarkdown(markdown);
+    window.viewer()->renderNow();
+
+    auto *panel = window.findChild<OutlinePanel *>();
+    QVERIFY(panel);
+    auto *tree = panel->findChild<QTreeWidget *>();
+    QVERIFY(tree);
+
+    QList<QTreeWidgetItem *> rows;
+    std::function<void(QTreeWidgetItem *)> collect = [&](QTreeWidgetItem *item) {
+        for (int child = 0; child < item->childCount(); ++child) {
+            rows.append(item->child(child));
+            collect(item->child(child));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        rows.append(tree->topLevelItem(i));
+        collect(tree->topLevelItem(i));
+    }
+    QCOMPARE(rows.size(), 4);
+
+    const QVector<OutlineEntry> entries = Outline::fromDocument(*window.viewer()->document());
+    const QVector<int> sourceLines = Outline::headingSourceLines(markdown);
+    QCOMPARE(entries.size(), 4);
+    QCOMPARE(sourceLines.size(), 4);
+
+    for (QTreeWidgetItem *row : rows) {
+        const int index = row->data(0, Qt::UserRole).toInt();
+        const QRect rect = tree->visualItemRect(row);
+        QVERIFY(!rect.isNull());
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier, rect.center());
+
+        QCOMPARE(window.viewer()->visibleHeading(), entries.at(index).blockNumber);
+        QCOMPARE(window.editor()->textCursor().block().blockNumber(), sourceLines.at(index));
+    }
+}
+
+void SidebarTest::clickingThePreviewMovesTheEditorCaret()
+{
+    MainWindow window;
+    window.resize(900, 500);
+    window.show();
+    window.viewer()->setRenderInterval(0);
+    window.editor()->setMarkdown(QStringLiteral("# Title\n\nfirst paragraph\n\nsecond paragraph\n"));
+    window.viewer()->renderNow();
+
+    MarkdownView *view = window.viewer();
+    QTextBlock target;
+    for (QTextBlock block = view->document()->firstBlock(); block.isValid(); block = block.next()) {
+        if (block.text() == QLatin1String("second paragraph"))
+            target = block;
+    }
+    QVERIFY(target.isValid());
+
+    const QPoint at = view->cursorRect(QTextCursor(target)).center();
+    QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, at);
+
+    QCOMPARE(window.editor()->textCursor().block().blockNumber(), 4);
+    QCOMPARE(window.editor()->textCursor().block().text(), QStringLiteral("second paragraph"));
+    // The jump does not steal the focus: the preview can still be used to select
+    // and copy text.
+    QVERIFY(!window.editor()->hasFocus());
+}
+
+void SidebarTest::theSidebarSeparatorIsAHairline()
+{
+    MainWindow window;
+    window.resize(900, 500);
+    window.show();
+    QApplication::processEvents();
+    QApplication::processEvents();
+
+    auto *dock = window.findChild<QDockWidget *>(QStringLiteral("sidebar"));
+    QVERIFY(dock);
+    QVERIFY(dock->isVisible());
+
+    // The dock separator is the gap the window leaves between the sidebar and
+    // the central widget; the stock one is a thick bevel that reads as a wall
+    // next to the flat panes.
+    const int gap = window.centralWidget()->geometry().x() - dock->geometry().right() - 1;
+    QCOMPARE(gap, 1);
+}
+
+void SidebarTest::theSidebarTitleBarHasUsableButtons()
+{
+    MainWindow window;
+    window.resize(900, 500);
+    window.show();
+    QApplication::processEvents();
+
+    auto *dock = window.findChild<QDockWidget *>(QStringLiteral("sidebar"));
+    QVERIFY(dock);
+    QWidget *titleBar = dock->titleBarWidget();
+    QVERIFY(titleBar);
+
+    auto *close = titleBar->findChild<QAbstractButton *>(QStringLiteral("sidebarCloseButton"));
+    auto *floatButton = titleBar->findChild<QAbstractButton *>(QStringLiteral("sidebarFloatButton"));
+    QVERIFY(close);
+    QVERIFY(floatButton);
+
+    // Big enough to hit: the stock ones are about 18x14.
+    QVERIFY2(close->width() >= 22 && close->height() >= 22, qPrintable(QStringLiteral("close button is %1x%2").arg(close->width()).arg(close->height())));
+    QVERIFY2(floatButton->width() >= 22 && floatButton->height() >= 22,
+             qPrintable(QStringLiteral("float button is %1x%2").arg(floatButton->width()).arg(floatButton->height())));
+
+    QTest::mouseClick(close, Qt::LeftButton);
+    QVERIFY(!dock->isVisible());
+    dock->toggleViewAction()->trigger();
+    QVERIFY(dock->isVisible());
 }
 
 QTEST_MAIN(SidebarTest)

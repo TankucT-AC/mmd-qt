@@ -36,5 +36,5 @@ the public surface, ownership, threading and how the class fits into the app.
 | Page | Summary |
 |---|---|
 | [MainWindow.md](MainWindow.md) | Composition: panes, menus, file handling, theme wiring. |
-| [ScrollSync.md](ScrollSync.md) | Proportional two-way scroll synchronisation. |
+| [SidebarTitleBar.md](SidebarTitleBar.md) | The sidebar's own title bar: title plus pointer-sized float/close buttons. |
 | [main.md](main.md) | Startup sequence and command-line handling. |

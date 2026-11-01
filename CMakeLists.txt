@@ -59,9 +59,13 @@ add_subdirectory(tests)
 # ---------------------------------------------------------------------------
 install(FILES packaging/mmd-qt.desktop
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
-install(FILES resources/logo-256.png
-    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/256x256/apps
-    RENAME mmd-qt.png)
+# Every size the app ships, so a desktop that ignores the scalable icon still
+# gets an exact match instead of a scaled bitmap.
+foreach(_icon_size 16 24 32 48 64 128 256)
+    install(FILES "resources/logo-${_icon_size}.png"
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps
+        RENAME mmd-qt.png)
+endforeach()
 install(FILES resources/logo.svg
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
     RENAME mmd-qt.svg)

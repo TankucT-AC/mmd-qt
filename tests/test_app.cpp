@@ -29,6 +29,7 @@ private slots:
     void externalChangeReloadsUnmodifiedDocument();
     void themeModePersistsAcrossWindows();
     void hugeFileOpensPausedAndQuickly();
+    void openingAFileRendersThePreviewWithoutWaiting();
 
 private:
     static void typeInto(MarkdownEditor *editor, const QString &text, QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
@@ -39,6 +40,26 @@ void AppTest::typeInto(MarkdownEditor *editor, const QString &text, QTextCursor:
     QTextCursor cursor = editor->textCursor();
     cursor.movePosition(QTextCursor::End);
     cursor.insertText(text);
+}
+
+void AppTest::openingAFileRendersThePreviewWithoutWaiting()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("chapter.md"));
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("# Chapter\n\nbody\n");
+    }
+
+    MainWindow window;
+    // A long debounce stands in for the typing-pause path: opening a file must
+    // not wait for it, or the preview sits stale while the reader looks at it.
+    window.viewer()->setRenderInterval(5000);
+    QVERIFY(window.openFile(path));
+
+    QVERIFY(window.viewer()->document()->toPlainText().contains(QStringLiteral("Chapter")));
 }
 
 void AppTest::typingUpdatesPreview()

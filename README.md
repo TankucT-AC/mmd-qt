@@ -70,6 +70,7 @@ native.
 | **Sidebar** | A dockable panel with two tabs: a **table of contents** built from the headings, and a **file browser** for a whole folder of markdown. Hiding it is one keystroke. |
 | **Outline** | Every heading, nested by level, generated from the rendered document rather than parsed a second time. Click one to jump there, and the section you are reading stays highlighted as you scroll. |
 | **Find** | `Ctrl+F` opens a find strip over the pane that has the focus: literal search with wrap-around, a match counter, match-case toggle and every hit highlighted in place. |
+| **Click to source** | Click anything in the preview and the editor's caret jumps to the line it came from — the Zed-style way to edit what you are reading. A drag still selects text, a link still follows, and the two panes scroll independently. |
 | **LaTeX math** | `$e^{i\pi} + 1 = 0$` inline and `$$...$$` display formulas are typeset by the bundled [MicroTeX](third_party/microtex) engine and drawn as crisp, theme-coloured bitmaps. A formula that cannot be rendered shows its source text instead of a hole. |
 | **Big documents** | The size policy keeps the window responsive: past 1 MB the preview updates when typing pauses, past 5 MB it waits behind a notice in the pane (with a "Render anyway" link) and the editor drops markdown highlighting. |
 
@@ -192,7 +193,7 @@ See [`STYLEGUIDE.md`](STYLEGUIDE.md) for the full rationale.
 ## Project layout
 
 ```text
-src/app/      MainWindow, sidebar panels, find controller, scroll synchronisation
+src/app/      MainWindow, sidebar panels, find controller
 src/core/     markdown -> QTextDocument, outline, search, size policy,
               themes, fonts, files
 src/editor/   the source pane: text editor + markdown highlighter
@@ -201,6 +202,8 @@ tests/        one QTest binary per module, run through CTest
 third_party/  vendored md4c (MIT), MicroTeX (MIT) + tinyxml2 (zlib),
               bundled fonts (OFL) and TeX font resources
 src/doc/      reference documentation for the public classes
+tools/        one-off generators, e.g. render-icons.cpp, which rebuilds
+              resources/logo-*.png from resources/logo.svg
 ```
 
 ## Testing

@@ -46,6 +46,7 @@ passes (notably `CodeHighlighter`) can find blocks without re-parsing.
 | `PropertyKey::headingLevelKey` | Heading level (1–6) stored on a heading block format. |
 | `PropertyKey::languageKey` | The info-string language of a code block, e.g. `cpp`. |
 | `PropertyKey::gifPathKey` | Filesystem path of an animated image stored on its object char format. |
+| `PropertyKey::sourceLineKey` | Zero-based source line a block was built from; what click-to-source resolves. |
 
 | Constant | Value | Description |
 |----------|-------|-------------|
@@ -79,6 +80,7 @@ in the worker and hand it back.
 
 - `MarkdownView` calls `build()` and then `CodeHighlighter::highlight()` on the result.
 - `MarkdownView` registers a `GifObjectHandler` for `gifObjectType`, which the builder emits for animated images.
+- `MarkdownView::sourceLineAt` reads `sourceLineKey` back off a block, which is how a click in the preview finds the line to put the editor's caret on.
 
 ## 16. Usage Example
 

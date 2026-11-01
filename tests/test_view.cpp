@@ -3,7 +3,6 @@
 
 #include <QtTest>
 
-#include "app/ScrollSync.h"
 #include "core/DocumentLimits.h"
 #include "core/MarkdownBuilder.h"
 #include "core/Theme.h"
@@ -30,8 +29,6 @@ private slots:
     void renderIsImmediateWhenIntervalIsZero();
     void scrollIsPreservedAcrossRerender();
     void baseDirResolvesImages();
-    void scrollSyncIsProportionalAndGuarded();
-    void scrollSyncDoesNotLoop();
     void contentIsCappedByMaxWidth();
     void codeFramesAreFoundAfterRender();
     void copyButtonCopiesTheCode();
@@ -41,6 +38,8 @@ private slots:
     void deferredDocumentStillRenders();
     void smallDocumentRendersImmediately();
     void inlineMathBecomesADrawnObject();
+    void sourceLineTracksTheBlock();
+    void clickingThePreviewReportsTheSourceLine();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -185,41 +184,6 @@ void ViewTest::baseDirResolvesImages()
     QVERIFY(found);
 }
 
-void ViewTest::scrollSyncIsProportionalAndGuarded()
-{
-    QTextBrowser first;
-    QTextBrowser second;
-
-    // Explicit ranges keep the test independent of layout timing.
-    first.verticalScrollBar()->setRange(0, 1000);
-    second.verticalScrollBar()->setRange(0, 500);
-
-    ScrollSync sync(&first, &second);
-
-    first.verticalScrollBar()->setValue(250); // quarter of the way down
-    QCOMPARE(second.verticalScrollBar()->value(), 125); // same fraction of 500
-
-    second.verticalScrollBar()->setValue(500); // full
-    QCOMPARE(first.verticalScrollBar()->value(), 1000);
-}
-
-void ViewTest::scrollSyncDoesNotLoop()
-{
-    QTextBrowser first;
-    QTextBrowser second;
-    first.resize(300, 200);
-    second.resize(300, 200);
-    first.verticalScrollBar()->setRange(0, 100);
-    second.verticalScrollBar()->setRange(0, 100);
-
-    ScrollSync sync(&first, &second);
-    QSignalSpy spy(first.verticalScrollBar(), &QScrollBar::valueChanged);
-    second.verticalScrollBar()->setValue(50);
-    // One forward update only; the guard must prevent bouncing back.
-    QCOMPARE(first.verticalScrollBar()->value(), 50);
-    QCOMPARE(spy.count(), 1);
-}
-
 void ViewTest::contentIsCappedByMaxWidth()
 {
     MarkdownView view;
@@ -354,6 +318,51 @@ void ViewTest::smallDocumentRendersImmediately()
 
     view.setMarkdown(QStringLiteral("# Title\n"));
     QVERIFY(view.document()->toPlainText().contains(QStringLiteral("Title")));
+}
+
+void ViewTest::sourceLineTracksTheBlock()
+{
+    MarkdownView view;
+    view.resize(600, 400);
+    view.show();
+    view.setRenderInterval(0);
+    view.setMarkdown(QStringLiteral("# Title\n\nplain text line\n\n- list item\n"));
+
+    const auto lineAtBlock = [&view](const QString &text) {
+        for (QTextBlock block = view.document()->firstBlock(); block.isValid(); block = block.next()) {
+            if (block.text() != text)
+                continue;
+            return view.sourceLineAt(view.cursorRect(QTextCursor(block)).center());
+        }
+        return -1;
+    };
+
+    QCOMPARE(lineAtBlock(QStringLiteral("Title")), 0);
+    QCOMPARE(lineAtBlock(QStringLiteral("plain text line")), 2);
+    QCOMPARE(lineAtBlock(QStringLiteral("list item")), 4);
+}
+
+void ViewTest::clickingThePreviewReportsTheSourceLine()
+{
+    MarkdownView view;
+    view.resize(600, 400);
+    view.show();
+    view.setRenderInterval(0);
+    view.setMarkdown(QStringLiteral("# Title\n\nplain text line\n"));
+
+    QTextBlock target;
+    for (QTextBlock block = view.document()->firstBlock(); block.isValid(); block = block.next()) {
+        if (block.text() == QLatin1String("plain text line"))
+            target = block;
+    }
+    QVERIFY(target.isValid());
+
+    QSignalSpy spy(&view, &MarkdownView::sourceLineActivated);
+    const QPoint at = view.cursorRect(QTextCursor(target)).center();
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, at);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(0).toInt(), 2);
 }
 
 QTEST_MAIN(ViewTest)

@@ -111,8 +111,16 @@ public:
     // no heading matches.
     bool scrollToAnchor(const QString &slug);
 
+    // Zero-based source line of the block under a viewport point, or -1 when the
+    // point is not over a block the builder could map. Click-to-source.
+    int sourceLineAt(const QPoint &viewportPos) const;
+
 signals:
     void rendered();
+
+    // A plain click landed somewhere in the document: the editor should put its
+    // caret on this source line. Zed-style "click the preview to edit here".
+    void sourceLineActivated(int line);
 
     // The heading the reader is currently under, as a rendered block number, or
     // -1 while above the first heading. Drives the outline panel.
@@ -124,6 +132,7 @@ protected:
     void paintEvent(QPaintEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void leaveEvent(QEvent *event) override;
 
 private:
@@ -156,4 +165,8 @@ private:
     QVector<FindState::Match> m_findMatches;
     int m_findCurrent = -1;
     int m_visibleHeading = -1;
+    // Where the last left press landed, so a drag (a selection) does not also
+    // move the editor caret.
+    QPoint m_pressPosition;
+    bool m_hasPressPosition = false;
 };

@@ -61,6 +61,9 @@ public:
         chipKindKey,
         mathSourceKey,
         mathDisplayKey,
+        // Source line (0-based) a block was built from; the viewer uses it to
+        // send a click in the preview back to the right line in the editor.
+        sourceLineKey,
     };
 
     // QTextCharFormat object type used for animated images. The viewer

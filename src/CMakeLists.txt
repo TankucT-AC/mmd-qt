@@ -9,12 +9,12 @@ add_library(mmd_core STATIC
     ../third_party/fonts/fonts.qrc
     app/MainWindow.h
     app/MainWindow.cpp
-    app/ScrollSync.h
-    app/ScrollSync.cpp
     app/FindController.h
     app/FindController.cpp
     app/OutlinePanel.h
     app/OutlinePanel.cpp
+    app/SidebarTitleBar.h
+    app/SidebarTitleBar.cpp
     app/FileTreePanel.h
     app/FileTreePanel.cpp
     core/Theme.h

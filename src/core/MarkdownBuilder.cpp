@@ -160,6 +160,7 @@ private:
         QTextBlockFormat format;
         QTextCharFormat baseCharFormat;
         bool attachToList = false;
+        int sourceLine = -1;
     };
 
     struct Cell {
@@ -194,10 +195,21 @@ private:
 
     void setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList);
     void startBlock();
+    // Source-line mapping. md4c hands text over in document order, so a cursor
+    // advanced over the source as the text arrives stays in step with the
+    // blocks; used to send a click in the preview back to the editor's line.
+    int consumeSource(const QString &text);
+    // Marks the block under the cursor with the line it came from, unless it
+    // already knows: a span (link, image, formula) can open a block before its
+    // text arrives, so the first literal run is what identifies the line.
+    void stampCurrentBlock(int line);
+    // Line of the next horizontal rule in the source. A rule carries no text of
+    // its own, so it is found by shape instead of by its content.
+    int lineOfNextRule();
     void insertImageElement(const QString &source, const QString &alt, int htmlWidth = 0);
     void insertMathElement(const QString &tex, bool display);
     void insertChip(const QString &text, MarkdownBuilder::ChipKind kind);
-    void insertVerbatim(const QString &content);
+    void insertVerbatim(const QString &content, int sourceLine);
     void startVerbatimFrame(const QColor &background, const QString &language);
     void endVerbatimFrame();
     void removeFrameSpacers();
@@ -223,6 +235,9 @@ private:
 
     QTextBlockFormat paragraphFormat() const;
     QTextBlockFormat centeredParagraphFormat() const;
+    // Cell format for tables: Qt draws the grid between cells from the cell's
+    // own border, so the colour has to live there, not only on the table.
+    QTextTableCellFormat tableCellFormat(bool header) const;
     void startHtmlBlock();
     QTextBlockFormat headingFormat(int level) const;
     QTextBlockFormat codeFormat(const QString &language) const;
@@ -242,6 +257,16 @@ private:
     bool m_firstBlock = true;
     PendingBlock m_pending;
     QTextCharFormat m_blockCharFormat;
+
+    // The source being built, plus the cursor used to map blocks back to lines.
+    QString m_source;
+    qsizetype m_sourceScan = 0;
+    int m_sourceLine = 0;
+    // Start line of the last literal run consumed; the line a formula or an
+    // image that arrives after its own text belongs to.
+    int m_lastRunLine = 0;
+    // Source line of the first line of the code block being collected.
+    int m_verbatimSourceLine = -1;
 
     SpanFormatState m_span;
     QString m_linkHref;
@@ -312,6 +337,11 @@ bool Builder::run(const QString &markdown)
 {
     const QByteArray utf8 = markdown.toUtf8();
 
+    m_source = markdown;
+    m_sourceScan = 0;
+    m_sourceLine = 0;
+    m_verbatimSourceLine = -1;
+
     MD_PARSER parser = {};
     parser.abi_version = 0;
     parser.flags = kParserFlags;
@@ -334,7 +364,82 @@ bool Builder::run(const QString &markdown)
 
 void Builder::setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList)
 {
-    m_pending = PendingBlock{true, format, base, attachToList};
+    // The line is filled in by the block's first literal text run; a block that
+    // never gets one (an empty list item, say) simply stays unmapped.
+    m_pending = PendingBlock{true, format, base, attachToList, -1};
+}
+
+int Builder::consumeSource(const QString &text)
+{
+    if (text.isEmpty())
+        return m_sourceLine;
+
+    // Entities, escapes and collapsed whitespace mean a run is not always in
+    // the source verbatim. A miss leaves the cursor alone, and the next literal
+    // run picks the line count back up.
+    const qsizetype found = m_source.indexOf(text, m_sourceScan);
+    if (found < 0)
+        return m_sourceLine;
+
+    int line = m_sourceLine;
+    for (qsizetype i = m_sourceScan; i < found; ++i) {
+        if (m_source.at(i) == QLatin1Char('\n'))
+            ++line;
+    }
+    const int startLine = line;
+
+    // A run can span lines (code blocks, hard wraps), so the chunk itself has
+    // to be counted too, or every later block drifts upwards.
+    for (qsizetype i = found; i < found + text.size(); ++i) {
+        if (m_source.at(i) == QLatin1Char('\n'))
+            ++line;
+    }
+
+    m_sourceLine = line;
+    m_lastRunLine = startLine;
+    m_sourceScan = found + text.size();
+    return startLine;
+}
+
+void Builder::stampCurrentBlock(int line)
+{
+    if (line < 0)
+        return;
+
+    const QTextBlock block = m_cursor.block();
+    if (!block.isValid() || block.blockFormat().hasProperty(MarkdownBuilder::sourceLineKey))
+        return;
+
+    QTextBlockFormat format = block.blockFormat();
+    format.setProperty(MarkdownBuilder::sourceLineKey, line);
+    m_cursor.setBlockFormat(format);
+}
+
+int Builder::lineOfNextRule()
+{
+    qsizetype start = m_sourceScan;
+    int line = m_sourceLine;
+    while (start <= m_source.size()) {
+        const qsizetype newline = m_source.indexOf(QLatin1Char('\n'), start);
+        const QStringView text = QStringView(m_source).mid(start, newline < 0 ? -1 : newline - start);
+        const QStringView trimmed = text.trimmed();
+        if (trimmed.size() >= 3) {
+            const QChar marker = trimmed.at(0);
+            const bool repeated = std::all_of(trimmed.cbegin(), trimmed.cend(), [marker](QChar character) {
+                return character == marker;
+            });
+            if (repeated && (marker == QLatin1Char('-') || marker == QLatin1Char('*') || marker == QLatin1Char('_'))) {
+                m_sourceScan = start;
+                m_sourceLine = line;
+                return line;
+            }
+        }
+        if (newline < 0)
+            break;
+        start = newline + 1;
+        ++line;
+    }
+    return m_sourceLine;
 }
 
 void Builder::startBlock()
@@ -347,6 +452,8 @@ void Builder::startBlock()
 
     // Inside <div align="center"> every block is centred.
     QTextBlockFormat blockFormat = pending.format;
+    if (pending.sourceLine >= 0)
+        blockFormat.setProperty(MarkdownBuilder::sourceLineKey, pending.sourceLine);
     if (m_htmlCenterDepth > 0)
         blockFormat.setAlignment(Qt::AlignHCenter);
 
@@ -551,6 +658,19 @@ QTextBlockFormat Builder::ruleFormat() const
     format.setTopMargin(6);
     format.setBottomMargin(6);
     format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Rule));
+    return format;
+}
+
+QTextTableCellFormat Builder::tableCellFormat(bool header) const
+{
+    QTextTableCellFormat format;
+    format.setBorder(1);
+    format.setBorderBrush(QBrush(m_style.theme.markdown.tableBorder));
+    format.setBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+    if (header) {
+        format.setBackground(m_style.theme.markdown.tableHeaderBackground);
+        format.setFontWeight(QFont::Bold);
+    }
     return format;
 }
 
@@ -782,6 +902,7 @@ int Builder::leaveBlock(MD_BLOCKTYPE type, void *detail)
         break;
     case MD_BLOCK_HR:
         startBlock();
+        stampCurrentBlock(lineOfNextRule());
         m_cursor.insertText(QString(QChar(0x2500)).repeated(kRuleLength), ruleCharFormat());
         break;
     case MD_BLOCK_TABLE:
@@ -907,6 +1028,7 @@ void Builder::startVerbatimFrame(const QColor &background, const QString &langua
 
     m_verbatimBlockFormat = codeFormat(language);
     m_verbatimPendingNewline = false;
+    m_verbatimSourceLine = -1;
     m_inVerbatimBlock = true;
 
     // The frame box is the shaded region: it keeps long lines that wrap and
@@ -961,28 +1083,54 @@ void Builder::removeFrameSpacers()
     }
 }
 
-void Builder::insertVerbatim(const QString &content)
+void Builder::insertVerbatim(const QString &content, int sourceLine)
 {
+    int line = sourceLine;
+
+    if (m_verbatimSourceLine < 0) {
+        // The first block of the frame was created before any text arrived.
+        m_verbatimSourceLine = line;
+        QTextBlockFormat format = m_verbatimBlockFormat;
+        format.setProperty(MarkdownBuilder::sourceLineKey, line);
+        m_verbatimCursor.setBlockFormat(format);
+    }
+
     int from = 0;
     while (from < content.size()) {
         const int newline = int(content.indexOf(QLatin1Char('\n'), from));
-        const QString line = newline < 0 ? content.mid(from) : content.mid(from, newline - from);
+        const QString text = newline < 0 ? content.mid(from) : content.mid(from, newline - from);
 
         if (m_verbatimPendingNewline) {
-            m_verbatimCursor.insertBlock(m_verbatimBlockFormat, m_blockCharFormat);
+            QTextBlockFormat format = m_verbatimBlockFormat;
+            format.setProperty(MarkdownBuilder::sourceLineKey, line);
+            m_verbatimCursor.insertBlock(format, m_blockCharFormat);
             m_verbatimPendingNewline = false;
         }
-        if (!line.isEmpty())
-            m_verbatimCursor.insertText(line, composeCharFormat());
+        if (!text.isEmpty())
+            m_verbatimCursor.insertText(text, composeCharFormat());
         if (newline < 0)
             break;
         m_verbatimPendingNewline = true;
+        ++line;
         from = newline + 1;
     }
 }
 
 int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
 {
+    // Keep the source cursor in step so every block knows the line it came
+    // from. Soft and hard breaks decode to characters that are not in the
+    // source at all; the next literal run resynchronises.
+    const QString raw = QString::fromUtf8(data, int(size));
+    int sourceLine = m_sourceLine;
+    if (type != MD_TEXT_BR && type != MD_TEXT_SOFTBR) {
+        sourceLine = consumeSource(raw);
+        if (m_pending.valid)
+            m_pending.sourceLine = sourceLine; // stamped when the block is opened
+        else if (!m_inVerbatimBlock)
+            stampCurrentBlock(sourceLine); // a span opened the block first
+    }
+
     if (m_mathDepth > 0) {
         // Raw TeX: no entity decoding, no inline processing, verbatim.
         m_mathBuffer += QString::fromUtf8(data, int(size));
@@ -1045,7 +1193,7 @@ int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
     }
 
     if (m_inVerbatimBlock) {
-        insertVerbatim(decoded);
+        insertVerbatim(decoded, sourceLine);
         return 0;
     }
 
@@ -1059,6 +1207,12 @@ int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
 void Builder::insertImageElement(const QString &source, const QString &alt, int htmlWidth)
 {
     const QString path = ImageResolver::resolve(source, m_style.baseDir);
+
+    // A span opens the block before its text arrives, so a block whose only
+    // content is an image with no alt text still has no line. The image's own
+    // path is the next thing in the source, on the same line.
+    if (alt.isEmpty())
+        stampCurrentBlock(consumeSource(source));
 
     // A remote image (e.g. a shields.io badge) is not fetched: show its alt
     // text as a chip so the document stays readable offline.
@@ -1165,12 +1319,7 @@ void Builder::emitTable()
                 blockFormat.setAlignment(cell.alignment);
                 cellCursor.setBlockFormat(blockFormat);
             }
-            if (cell.header) {
-                QTextTableCellFormat cellFormat;
-                cellFormat.setBackground(m_style.theme.markdown.tableHeaderBackground);
-                cellFormat.setFontWeight(QFont::Bold);
-                target->cellAt(int(row), int(column)).setFormat(cellFormat);
-            }
+            target->cellAt(int(row), int(column)).setFormat(tableCellFormat(cell.header));
         }
     }
 
@@ -1194,7 +1343,6 @@ void Builder::insertMathElement(const QString &tex, bool display)
         m_cursor.insertText(object, format);
         return;
     }
-
     // md4c glues a standalone $$...$$ to the paragraph before it: its lazy-math
     // rule swallows the blank line, so the span often arrives inside a block
     // that already carries text. Split it off -- the formula gets a centred
@@ -1211,6 +1359,9 @@ void Builder::insertMathElement(const QString &tex, bool display)
         startBlock();
     }
 
+    // The block the formula just opened still needs its line; the TeX source it
+    // was built from is what says which one.
+    stampCurrentBlock(m_lastRunLine);
     m_cursor.insertText(object, format);
 }
 
@@ -1410,12 +1561,7 @@ void Builder::renderHtmlBlock(const QString &html)
                     for (int column = 0; column < rows[row].size(); ++column) {
                         QTextCursor cellCursor = table->cellAt(row, column).firstCursorPosition();
                         cellCursor.insertText(rows[row][column], bodyCharFormat());
-                        if (headerRow[row]) {
-                            QTextTableCellFormat cellFormat;
-                            cellFormat.setBackground(m_style.theme.markdown.tableHeaderBackground);
-                            cellFormat.setFontWeight(QFont::Bold);
-                            table->cellAt(row, column).setFormat(cellFormat);
-                        }
+                        table->cellAt(row, column).setFormat(tableCellFormat(headerRow[row]));
                     }
                 }
                 m_cursor = QTextCursor(m_document);
