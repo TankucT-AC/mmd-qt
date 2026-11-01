@@ -9,8 +9,9 @@
 
 class QAction;
 class QSplitter;
-class QTextBrowser;
 class MarkdownEditor;
+class MarkdownView;
+class ScrollSync;
 
 class MainWindow : public QMainWindow
 {
@@ -24,6 +25,8 @@ public:
     QAction *toggleEditorAction() const;
     QAction *toggleViewerAction() const;
     ThemeManager *themeManager() const;
+    MarkdownEditor *editor() const;
+    MarkdownView *viewer() const;
 
 private:
     void buildUi();
@@ -33,7 +36,8 @@ private:
 
     QSplitter *m_splitter = nullptr;
     MarkdownEditor *m_editor = nullptr;
-    QTextBrowser *m_viewer = nullptr;
+    MarkdownView *m_viewer = nullptr;
+    ScrollSync *m_scrollSync = nullptr;
     QAction *m_toggleEditor = nullptr;
     QAction *m_toggleViewer = nullptr;
     QAction *m_customThemeAction = nullptr;

@@ -4,6 +4,10 @@
 #include <QtTest>
 
 #include "app/MainWindow.h"
+#include "editor/MarkdownEditor.h"
+#include "viewer/MarkdownView.h"
+
+#include <QTextCursor>
 
 class AppTest : public QObject
 {
@@ -13,7 +17,30 @@ private slots:
     void windowOpensWithBothPanelsVisible();
     void panelsCanBeClosedAndReopened();
     void themeChangeUpdatesApplicationPalette();
+    void typingUpdatesPreview();
+
+private:
+    static void typeInto(MarkdownEditor *editor, const QString &text, QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
 };
+
+void AppTest::typeInto(MarkdownEditor *editor, const QString &text, QTextCursor::MoveMode)
+{
+    QTextCursor cursor = editor->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    cursor.insertText(text);
+}
+
+void AppTest::typingUpdatesPreview()
+{
+    MainWindow window;
+    window.viewer()->setRenderInterval(0);
+
+    typeInto(window.editor(), QStringLiteral("# Hello\n\nworld\n"));
+
+    const QString text = window.viewer()->document()->toPlainText();
+    QVERIFY(text.contains(QStringLiteral("Hello")));
+    QVERIFY(text.contains(QStringLiteral("world")));
+}
 
 void AppTest::themeChangeUpdatesApplicationPalette()
 {

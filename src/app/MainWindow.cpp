@@ -3,8 +3,10 @@
 
 #include "app/MainWindow.h"
 
+#include "app/ScrollSync.h"
 #include "core/ThemeManager.h"
 #include "editor/MarkdownEditor.h"
+#include "viewer/MarkdownView.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -17,7 +19,6 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSplitter>
-#include <QTextBrowser>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -61,8 +62,7 @@ void MainWindow::buildUi()
     m_splitter = new QSplitter(Qt::Horizontal, this);
 
     m_editor = new MarkdownEditor(m_splitter);
-    // Placeholder until MarkdownView lands; then this becomes the preview pane.
-    m_viewer = new QTextBrowser(m_splitter);
+    m_viewer = new MarkdownView(m_splitter);
 
     m_splitter->addWidget(m_editor);
     m_splitter->addWidget(m_viewer);
@@ -70,6 +70,16 @@ void MainWindow::buildUi()
     m_splitter->setStretchFactor(1, 1);
 
     setCentralWidget(m_splitter);
+
+    connect(m_editor, &QPlainTextEdit::textChanged, this, [this] {
+        m_viewer->setMarkdown(m_editor->toPlainText());
+    });
+    connect(m_splitter, &QSplitter::splitterMoved, this, [this] {
+        m_viewer->renderNow();
+    });
+    m_scrollSync = new ScrollSync(m_editor, m_viewer, this);
+
+    m_viewer->setMarkdown(m_editor->toPlainText());
 }
 
 void MainWindow::buildMenus()
@@ -123,7 +133,20 @@ void MainWindow::applyTheme(const ThemeDefinition &theme)
 {
     QApplication::setPalette(theme.palette);
     m_editor->setTheme(theme);
-    m_viewer->setPalette(theme.palette);
+
+    RenderStyle style = m_viewer->renderStyle();
+    style.theme = theme;
+    m_viewer->setRenderStyle(style);
+}
+
+MarkdownEditor *MainWindow::editor() const
+{
+    return m_editor;
+}
+
+MarkdownView *MainWindow::viewer() const
+{
+    return m_viewer;
 }
 
 void MainWindow::loadThemeFromFile()

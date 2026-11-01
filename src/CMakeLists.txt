@@ -9,6 +9,8 @@ add_library(mmd_core STATIC
     ../third_party/fonts/fonts.qrc
     app/MainWindow.h
     app/MainWindow.cpp
+    app/ScrollSync.h
+    app/ScrollSync.cpp
     core/Theme.h
     core/Theme.cpp
     core/ThemeManager.h
@@ -23,6 +25,10 @@ add_library(mmd_core STATIC
     editor/MarkdownEditor.cpp
     editor/MarkdownHighlighter.h
     editor/MarkdownHighlighter.cpp
+    viewer/MarkdownView.h
+    viewer/MarkdownView.cpp
+    viewer/GifObjectHandler.h
+    viewer/GifObjectHandler.cpp
 )
 
 target_include_directories(mmd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
