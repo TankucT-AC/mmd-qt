@@ -12,7 +12,18 @@ class AppTest : public QObject
 private slots:
     void windowOpensWithBothPanelsVisible();
     void panelsCanBeClosedAndReopened();
+    void themeChangeUpdatesApplicationPalette();
 };
+
+void AppTest::themeChangeUpdatesApplicationPalette()
+{
+    MainWindow window;
+    window.themeManager()->setMode(ThemeManager::Mode::Dark);
+    QCOMPARE(QApplication::palette().color(QPalette::Window), ThemeDefinition::dark().palette.color(QPalette::Window));
+
+    window.themeManager()->setMode(ThemeManager::Mode::Light);
+    QCOMPARE(QApplication::palette().color(QPalette::Window), ThemeDefinition::light().palette.color(QPalette::Window));
+}
 
 void AppTest::windowOpensWithBothPanelsVisible()
 {

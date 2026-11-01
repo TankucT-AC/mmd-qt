@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "core/ThemeManager.h"
+
 #include <QMainWindow>
 
 class QAction;
@@ -21,14 +23,19 @@ public:
     QWidget *viewerPanel() const;
     QAction *toggleEditorAction() const;
     QAction *toggleViewerAction() const;
+    ThemeManager *themeManager() const;
 
 private:
     void buildUi();
     void buildMenus();
+    void applyTheme(const ThemeDefinition &theme);
+    void loadThemeFromFile();
 
     QSplitter *m_splitter = nullptr;
     QPlainTextEdit *m_editor = nullptr;
     QTextBrowser *m_viewer = nullptr;
     QAction *m_toggleEditor = nullptr;
     QAction *m_toggleViewer = nullptr;
+    QAction *m_customThemeAction = nullptr;
+    ThemeManager *m_themes = nullptr;
 };

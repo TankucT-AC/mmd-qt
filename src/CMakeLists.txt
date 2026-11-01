@@ -8,6 +8,10 @@ qt_standard_project_setup()
 add_library(mmd_core STATIC
     app/MainWindow.h
     app/MainWindow.cpp
+    core/Theme.h
+    core/Theme.cpp
+    core/ThemeManager.h
+    core/ThemeManager.cpp
 )
 
 target_include_directories(mmd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
