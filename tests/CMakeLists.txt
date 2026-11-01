@@ -64,3 +64,11 @@ target_link_libraries(test_gif PRIVATE mmd_core Qt6::Test)
 
 add_test(NAME test_gif COMMAND test_gif)
 set_tests_properties(test_gif PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(test_file
+    test_file.cpp
+)
+target_link_libraries(test_file PRIVATE mmd_core Qt6::Test)
+
+add_test(NAME test_file COMMAND test_file)
+set_tests_properties(test_file PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

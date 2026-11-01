@@ -1,0 +1,136 @@
+// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "core/FileDocument.h"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+
+FileDocument::FileDocument(QObject *parent)
+    : QObject(parent)
+{
+    connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, &FileDocument::handleFileChanged);
+    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, &FileDocument::handleDirectoryChanged);
+}
+
+bool FileDocument::load(const QString &path, QString *error)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+
+    m_content = QString::fromUtf8(file.readAll());
+    m_path = QFileInfo(path).absoluteFilePath();
+    m_directory = QFileInfo(m_path).absolutePath();
+    watchPath(m_path);
+    return true;
+}
+
+bool FileDocument::save(const QString &path, const QString &content, QString *error)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+
+    const QByteArray bytes = content.toUtf8();
+    if (file.write(bytes) != bytes.size()) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+    file.close();
+
+    m_saving = true;
+    m_content = content;
+    m_path = QFileInfo(path).absoluteFilePath();
+    m_directory = QFileInfo(m_path).absolutePath();
+    watchPath(m_path);
+    m_saving = false;
+    return true;
+}
+
+void FileDocument::close()
+{
+    unwatchAll();
+    m_path.clear();
+    m_directory.clear();
+    m_content.clear();
+}
+
+QString FileDocument::filePath() const
+{
+    return m_path;
+}
+
+QString FileDocument::content() const
+{
+    return m_content;
+}
+
+bool FileDocument::exists() const
+{
+    return !m_path.isEmpty() && QFileInfo::exists(m_path);
+}
+
+void FileDocument::watchPath(const QString &path)
+{
+    Q_UNUSED(path);
+    unwatchAll();
+    if (!m_path.isEmpty() && QFileInfo::exists(m_path))
+        m_watcher.addPath(m_path);
+    if (!m_directory.isEmpty() && QFileInfo::exists(m_directory))
+        m_watcher.addPath(m_directory);
+}
+
+void FileDocument::unwatchAll()
+{
+    const QStringList files = m_watcher.files();
+    if (!files.isEmpty())
+        m_watcher.removePaths(files);
+    const QStringList directories = m_watcher.directories();
+    if (!directories.isEmpty())
+        m_watcher.removePaths(directories);
+}
+
+void FileDocument::handleFileChanged(const QString &path)
+{
+    Q_UNUSED(path);
+    handleDirectoryChanged(m_directory);
+}
+
+void FileDocument::handleDirectoryChanged(const QString &path)
+{
+    Q_UNUSED(path);
+    QFile file(m_path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        // The file is gone (deleted or being atomically replaced).
+        rearmWatch();
+        emit externallyChanged();
+        return;
+    }
+
+    const QString content = QString::fromUtf8(file.readAll());
+    rearmWatch();
+
+    if (m_saving || content == m_content)
+        return; // our own write, or a no-op touch
+
+    m_content = content;
+    emit externallyChanged();
+}
+
+void FileDocument::rearmWatch()
+{
+    // A replaced/deleted file drops its watch; re-add file and directory.
+    if (!m_watcher.files().contains(m_path))
+        m_watcher.addPath(m_path);
+    if (!m_watcher.directories().contains(m_directory))
+        m_watcher.addPath(m_directory);
+}

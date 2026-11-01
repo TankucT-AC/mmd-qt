@@ -17,6 +17,8 @@ add_library(mmd_core STATIC
     core/ThemeManager.cpp
     core/FontManager.h
     core/FontManager.cpp
+    core/FileDocument.h
+    core/FileDocument.cpp
     core/ImageResolver.h
     core/ImageResolver.cpp
     core/MarkdownBuilder.h

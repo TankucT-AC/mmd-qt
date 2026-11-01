@@ -4,6 +4,7 @@
 #include "app/MainWindow.h"
 
 #include "app/ScrollSync.h"
+#include "core/FileDocument.h"
 #include "core/ThemeManager.h"
 #include "editor/MarkdownEditor.h"
 #include "viewer/MarkdownView.h"
@@ -11,8 +12,10 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QCloseEvent>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QMenu>
@@ -22,13 +25,17 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
+    , m_file(new FileDocument(this))
     , m_themes(new ThemeManager(this))
 {
     buildUi();
     buildMenus();
     connect(m_themes, &ThemeManager::themeChanged, this, &MainWindow::applyTheme);
+    connect(m_file, &FileDocument::externallyChanged, this, &MainWindow::onExternalChange);
+    connect(m_editor->document(), &QTextDocument::modificationChanged, this, &MainWindow::updateWindowTitle);
+
     applyTheme(m_themes->currentTheme());
-    setWindowTitle(tr("mmd"));
+    updateWindowTitle();
     resize(1200, 800);
 }
 
@@ -55,6 +62,21 @@ QAction *MainWindow::toggleViewerAction() const
 ThemeManager *MainWindow::themeManager() const
 {
     return m_themes;
+}
+
+MarkdownEditor *MainWindow::editor() const
+{
+    return m_editor;
+}
+
+MarkdownView *MainWindow::viewer() const
+{
+    return m_viewer;
+}
+
+FileDocument *MainWindow::fileDocument() const
+{
+    return m_file;
 }
 
 void MainWindow::buildUi()
@@ -84,6 +106,14 @@ void MainWindow::buildUi()
 
 void MainWindow::buildMenus()
 {
+    QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
+    fileMenu->addAction(tr("&New"), QKeySequence::New, this, &MainWindow::newFile);
+    fileMenu->addAction(tr("&Open…"), QKeySequence::Open, this, &MainWindow::openFileDialog);
+    fileMenu->addAction(tr("&Save"), QKeySequence::Save, this, &MainWindow::saveFile);
+    fileMenu->addAction(tr("Save &As…"), QKeySequence::SaveAs, this, &MainWindow::saveFileAs);
+    fileMenu->addSeparator();
+    fileMenu->addAction(tr("&Quit"), QKeySequence(QStringLiteral("Ctrl+Q")), this, &QWidget::close);
+
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
 
     m_toggleEditor = viewMenu->addAction(tr("&Editor"));
@@ -124,9 +154,6 @@ void MainWindow::buildMenus()
     }
     themeMenu->addSeparator();
     themeMenu->addAction(tr("Load Theme &File…"), this, &MainWindow::loadThemeFromFile);
-
-    viewMenu->addSeparator();
-    viewMenu->addAction(tr("&Quit"), QKeySequence(QStringLiteral("Ctrl+Q")), this, &QWidget::close);
 }
 
 void MainWindow::applyTheme(const ThemeDefinition &theme)
@@ -139,14 +166,116 @@ void MainWindow::applyTheme(const ThemeDefinition &theme)
     m_viewer->setRenderStyle(style);
 }
 
-MarkdownEditor *MainWindow::editor() const
+void MainWindow::applyFileContent(const QString &content, const QString &path)
 {
-    return m_editor;
+    m_viewer->setBaseDir(path.isEmpty() ? QString() : QFileInfo(path).absolutePath());
+    m_editor->setMarkdown(content);
+    m_editor->document()->setModified(false);
+    m_viewer->setMarkdown(content);
+    updateWindowTitle();
 }
 
-MarkdownView *MainWindow::viewer() const
+void MainWindow::updateWindowTitle()
 {
-    return m_viewer;
+    const QString name = m_file->filePath().isEmpty() ? tr("Untitled") : QFileInfo(m_file->filePath()).fileName();
+    const QString modified = m_editor->document()->isModified() ? QStringLiteral("*") : QString();
+    setWindowTitle(tr("%1%2 — mmd").arg(modified, name));
+}
+
+bool MainWindow::openFile(const QString &path)
+{
+    QString error;
+    if (!m_file->load(path, &error)) {
+        QMessageBox::warning(this, tr("Open File"), tr("Cannot open %1:\n%2").arg(path, error));
+        return false;
+    }
+    applyFileContent(m_file->content(), m_file->filePath());
+    return true;
+}
+
+void MainWindow::openFileDialog()
+{
+    if (!maybeSave())
+        return;
+    const QString path = QFileDialog::getOpenFileName(this, tr("Open Markdown"), QString(), tr("Markdown files (*.md *.markdown *.mkd);;All files (*)"));
+    if (!path.isEmpty())
+        openFile(path);
+}
+
+void MainWindow::newFile()
+{
+    if (!maybeSave())
+        return;
+    m_file->close();
+    applyFileContent(QString(), QString());
+}
+
+bool MainWindow::saveFile()
+{
+    if (m_file->filePath().isEmpty())
+        return saveFileAs();
+
+    QString error;
+    if (!m_file->save(m_file->filePath(), m_editor->toPlainText(), &error)) {
+        QMessageBox::warning(this, tr("Save File"), tr("Cannot save %1:\n%2").arg(m_file->filePath(), error));
+        return false;
+    }
+    m_editor->document()->setModified(false);
+    updateWindowTitle();
+    return true;
+}
+
+bool MainWindow::saveFileAs()
+{
+    const QString path = QFileDialog::getSaveFileName(this, tr("Save Markdown"), m_file->filePath(), tr("Markdown files (*.md);;All files (*)"));
+    if (path.isEmpty())
+        return false;
+
+    QString error;
+    if (!m_file->save(path, m_editor->toPlainText(), &error)) {
+        QMessageBox::warning(this, tr("Save File"), tr("Cannot save %1:\n%2").arg(path, error));
+        return false;
+    }
+    m_editor->document()->setModified(false);
+    m_viewer->setBaseDir(QFileInfo(path).absolutePath());
+    updateWindowTitle();
+    return true;
+}
+
+bool MainWindow::maybeSave()
+{
+    if (!m_editor->document()->isModified())
+        return true;
+
+    const QMessageBox::StandardButton answer = QMessageBox::warning(this,
+                                                                    tr("mmd"),
+                                                                    tr("The document has unsaved changes.\nDo you want to save them?"),
+                                                                    QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+    if (answer == QMessageBox::Save)
+        return saveFile();
+    return answer != QMessageBox::Cancel;
+}
+
+void MainWindow::onExternalChange()
+{
+    if (m_editor->document()->isModified()) {
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            this,
+            tr("File Changed"),
+            tr("%1 changed on disk, but you have unsaved edits.\nReload and lose your edits?").arg(QFileInfo(m_file->filePath()).fileName()),
+            QMessageBox::Yes | QMessageBox::No);
+        if (answer != QMessageBox::Yes)
+            return;
+    }
+    applyFileContent(m_file->content(), m_file->filePath());
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (maybeSave())
+        event->accept();
+    else
+        event->ignore();
 }
 
 void MainWindow::loadThemeFromFile()

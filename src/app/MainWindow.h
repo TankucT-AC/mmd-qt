@@ -8,7 +8,9 @@
 #include <QMainWindow>
 
 class QAction;
+class QCloseEvent;
 class QSplitter;
+class FileDocument;
 class MarkdownEditor;
 class MarkdownView;
 class ScrollSync;
@@ -27,6 +29,16 @@ public:
     ThemeManager *themeManager() const;
     MarkdownEditor *editor() const;
     MarkdownView *viewer() const;
+    FileDocument *fileDocument() const;
+
+    // Opens a document by path; returns false and reports the error otherwise.
+    bool openFile(const QString &path);
+
+    // Saves the current document (prompting for a path when untitled).
+    bool saveFile();
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     void buildUi();
@@ -34,12 +46,21 @@ private:
     void applyTheme(const ThemeDefinition &theme);
     void loadThemeFromFile();
 
+    void newFile();
+    void openFileDialog();
+    bool saveFileAs();
+    bool maybeSave();
+    void updateWindowTitle();
+    void applyFileContent(const QString &content, const QString &path);
+    void onExternalChange();
+
     QSplitter *m_splitter = nullptr;
     MarkdownEditor *m_editor = nullptr;
     MarkdownView *m_viewer = nullptr;
     ScrollSync *m_scrollSync = nullptr;
+    FileDocument *m_file = nullptr;
+    ThemeManager *m_themes = nullptr;
     QAction *m_toggleEditor = nullptr;
     QAction *m_toggleViewer = nullptr;
     QAction *m_customThemeAction = nullptr;
-    ThemeManager *m_themes = nullptr;
 };
