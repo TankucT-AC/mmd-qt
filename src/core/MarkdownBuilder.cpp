@@ -455,6 +455,8 @@ QTextFrameFormat Builder::codeFrameFormat(const QColor &background) const
     format.setPadding(8);
     format.setTopMargin(6);
     format.setBottomMargin(6);
+    // Tag the frame so the view can find code boxes (e.g. for the copy button).
+    format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Code));
     return format;
 }
 

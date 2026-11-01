@@ -53,15 +53,36 @@ public:
     int renderInterval() const;
     void setRenderInterval(int milliseconds);
 
+    // Code boxes of the current document, in document order. Each is the
+    // QTextFrame the builder wrapped a fenced code block in.
+    QVector<QTextFrame *> codeFrames() const;
+
+    // The screen (viewport) rectangle of a code box and of its copy button.
+    QRect codeFrameRect(QTextFrame *frame) const;
+    QRect copyButtonRect(QTextFrame *frame) const;
+
+    // Plain text of a code box.
+    QString codeText(QTextFrame *frame) const;
+
+    // Copies the code box under the given viewport point, if the point hits its
+    // copy button. Returns true when something was copied.
+    bool copyCodeAt(const QPoint &viewportPos);
+
 signals:
     void rendered();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void leaveEvent(QEvent *event) override;
 
 private:
     void rebuild();
     void updateContentMargins();
+    void updateHoveredFrame(const QPoint &pos);
+    void drawCopyButton(QPainter &painter, const QRect &button, bool copied) const;
 
     RenderStyle m_style;
     QString m_source;
@@ -69,4 +90,8 @@ private:
     GifObjectHandler *m_gifHandler = nullptr;
     CheckboxObjectHandler *m_checkboxHandler = nullptr;
     std::unique_ptr<CodeHighlighter> m_codeHighlighter;
+
+    QTextFrame *m_hoveredFrame = nullptr;
+    QTextFrame *m_copiedFrame = nullptr;
+    QTimer *m_copyFeedbackTimer = nullptr;
 };

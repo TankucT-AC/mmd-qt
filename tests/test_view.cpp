@@ -7,6 +7,8 @@
 #include "core/Theme.h"
 #include "viewer/MarkdownView.h"
 
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QSet>
@@ -28,6 +30,8 @@ private slots:
     void scrollSyncIsProportionalAndGuarded();
     void scrollSyncDoesNotLoop();
     void contentIsCappedByMaxWidth();
+    void codeFramesAreFoundAfterRender();
+    void copyButtonCopiesTheCode();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -189,6 +193,45 @@ void ViewTest::contentIsCappedByMaxWidth()
     // The rendered column must not stretch across the whole window; give the
     // layout a chance to apply the margins.
     QTRY_VERIFY_WITH_TIMEOUT(view.document()->textWidth() <= view.renderStyle().maxContentWidth + 4, 3000);
+}
+
+void ViewTest::codeFramesAreFoundAfterRender()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+    view.setMarkdown(QStringLiteral("```cpp\nint x = 0;\n```\n"));
+
+    const QVector<QTextFrame *> frames = view.codeFrames();
+    QCOMPARE(frames.size(), 1);
+    QCOMPARE(view.codeText(frames.first()), QStringLiteral("int x = 0;"));
+}
+
+void ViewTest::copyButtonCopiesTheCode()
+{
+    MarkdownView view;
+    view.resize(700, 500);
+    view.show();
+    view.setRenderInterval(0);
+    view.setMarkdown(QStringLiteral("```cpp\nint x = 0;\nint y = 1;\n```\n"));
+
+    QTRY_VERIFY(!view.codeFrames().isEmpty());
+    QTextFrame *frame = view.codeFrames().first();
+
+    // The layout must settle before the button has a rectangle.
+    QRect button;
+    for (int attempt = 0; attempt < 50 && button.isEmpty(); ++attempt) {
+        QTest::qWait(20);
+        button = view.copyButtonRect(frame);
+    }
+    QVERIFY(!button.isEmpty());
+
+    // Hover the code box, then click its copy button.
+    QTest::mouseMove(view.viewport(), button.center());
+    QVERIFY(view.copyCodeAt(button.center()));
+    QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("int x = 0;\nint y = 1;"));
+
+    // A click elsewhere in the box must not copy.
+    QVERIFY(!view.copyCodeAt(view.codeFrameRect(frame).topLeft() + QPoint(20, 20)));
 }
 
 QTEST_MAIN(ViewTest)

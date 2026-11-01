@@ -9,11 +9,21 @@
 #include "viewer/GifObjectHandler.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QClipboard>
+#include <QEvent>
+#include <QGuiApplication>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
+#include <QTextFrame>
 #include <QTimer>
+
+#include <algorithm>
+#include <functional>
 
 namespace
 {
@@ -38,6 +48,16 @@ MarkdownView::MarkdownView(QWidget *parent)
     m_renderTimer->setSingleShot(true);
     m_renderTimer->setInterval(kDefaultRenderIntervalMs);
     connect(m_renderTimer, &QTimer::timeout, this, &MarkdownView::rebuild);
+
+    // Hover the code boxes to reveal their copy button.
+    viewport()->setMouseTracking(true);
+    m_copyFeedbackTimer = new QTimer(this);
+    m_copyFeedbackTimer->setSingleShot(true);
+    m_copyFeedbackTimer->setInterval(900);
+    connect(m_copyFeedbackTimer, &QTimer::timeout, this, [this] {
+        m_copiedFrame = nullptr;
+        viewport()->update();
+    });
 
     m_style.fonts = FontManager();
     m_style.theme = ThemeDefinition::light();
@@ -166,4 +186,155 @@ void MarkdownView::rebuild()
     }
 
     emit rendered();
+}
+QVector<QTextFrame *> MarkdownView::codeFrames() const
+{
+    QVector<QTextFrame *> frames;
+    std::function<void(QTextFrame *)> walk = [&](QTextFrame *frame) {
+        for (QTextFrame *child : frame->childFrames()) {
+            if (child->frameFormat().intProperty(MarkdownBuilder::kindKey) == int(MarkdownBuilder::BlockKind::Code))
+                frames.append(child);
+            walk(child);
+        }
+    };
+    walk(document()->rootFrame());
+    return frames;
+}
+
+QRect MarkdownView::codeFrameRect(QTextFrame *frame) const
+{
+    const QRectF docRect = document()->documentLayout()->frameBoundingRect(frame);
+    return docRect.translated(-horizontalScrollBar()->value(), -verticalScrollBar()->value()).toRect();
+}
+
+QRect MarkdownView::copyButtonRect(QTextFrame *frame) const
+{
+    constexpr int kSize = 26;
+    constexpr int kInset = 6;
+    const QRect frameRect = codeFrameRect(frame);
+    return QRect(frameRect.right() - kInset - kSize, frameRect.top() + kInset, kSize, kSize);
+}
+
+QString MarkdownView::codeText(QTextFrame *frame) const
+{
+    QString text;
+    for (QTextFrame::iterator it = frame->begin(); !it.atEnd(); ++it) {
+        const QTextBlock block = it.currentBlock();
+        if (!block.isValid())
+            continue;
+        if (!text.isEmpty())
+            text += QLatin1Char('\n');
+        text += block.text();
+    }
+    return text;
+}
+
+bool MarkdownView::copyCodeAt(const QPoint &viewportPos)
+{
+    if (!m_hoveredFrame || !copyButtonRect(m_hoveredFrame).contains(viewportPos))
+        return false;
+
+    QGuiApplication::clipboard()->setText(codeText(m_hoveredFrame));
+    m_copiedFrame = m_hoveredFrame;
+    m_copyFeedbackTimer->start();
+    viewport()->update();
+    return true;
+}
+
+void MarkdownView::updateHoveredFrame(const QPoint &pos)
+{
+    QTextFrame *hovered = nullptr;
+    for (QTextFrame *frame : codeFrames()) {
+        if (codeFrameRect(frame).contains(pos)) {
+            hovered = frame;
+            break;
+        }
+    }
+
+    if (hovered != m_hoveredFrame) {
+        m_hoveredFrame = hovered;
+        viewport()->update();
+    }
+
+    const bool overButton = m_hoveredFrame && copyButtonRect(m_hoveredFrame).contains(pos);
+    viewport()->setCursor(overButton ? Qt::PointingHandCursor : Qt::IBeamCursor);
+}
+
+void MarkdownView::mouseMoveEvent(QMouseEvent *event)
+{
+    updateHoveredFrame(event->pos());
+    QTextBrowser::mouseMoveEvent(event);
+}
+
+void MarkdownView::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton && copyCodeAt(event->pos()))
+        return;
+    QTextBrowser::mousePressEvent(event);
+}
+
+void MarkdownView::leaveEvent(QEvent *event)
+{
+    if (m_hoveredFrame) {
+        m_hoveredFrame = nullptr;
+        viewport()->update();
+    }
+    QTextBrowser::leaveEvent(event);
+}
+
+void MarkdownView::paintEvent(QPaintEvent *event)
+{
+    QTextBrowser::paintEvent(event);
+
+    if (!m_hoveredFrame)
+        return;
+
+    QPainter painter(viewport());
+    drawCopyButton(painter, copyButtonRect(m_hoveredFrame), m_hoveredFrame == m_copiedFrame);
+}
+
+void MarkdownView::drawCopyButton(QPainter &painter, const QRect &button, bool copied) const
+{
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    const QColor ink = m_style.theme.markdown.codeText;
+    constexpr qreal kChipAlpha = 26.0 / 255.0;
+    QColor chip = ink;
+    chip.setAlpha(26);
+    QColor border = ink;
+    border.setAlpha(48);
+    painter.setPen(QPen(border, 1));
+    painter.setBrush(chip);
+    painter.drawRoundedRect(button.adjusted(0, 0, -1, -1), 6, 6);
+
+    const QColor glyph = m_style.theme.markdown.weakText;
+    if (copied) {
+        QPainterPath tick;
+        tick.moveTo(button.left() + 8.0, button.top() + 13.5);
+        tick.lineTo(button.left() + 11.5, button.top() + 17.0);
+        tick.lineTo(button.left() + 18.0, button.top() + 9.5);
+        painter.setPen(QPen(glyph, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(tick);
+    } else {
+        // Two overlapping sheets: the front one is filled to occlude the back.
+        const QColor under = m_style.theme.markdown.codeBackground;
+        const QColor chipOpaque = QColor::fromRgbF(under.redF() * (1 - kChipAlpha) + ink.redF() * kChipAlpha,
+                                                   under.greenF() * (1 - kChipAlpha) + ink.greenF() * kChipAlpha,
+                                                   under.blueF() * (1 - kChipAlpha) + ink.blueF() * kChipAlpha);
+        const QRectF back(button.left() + 7.0, button.top() + 6.0, 9.0, 11.0);
+        const QRectF front(button.left() + 11.0, button.top() + 10.0, 9.0, 11.0);
+        painter.setPen(QPen(glyph, 1.5));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(back, 2.5, 2.5);
+        painter.setBrush(chipOpaque);
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(front, 2.5, 2.5);
+        painter.setPen(QPen(glyph, 1.5));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(front, 2.5, 2.5);
+    }
+
+    painter.restore();
 }
