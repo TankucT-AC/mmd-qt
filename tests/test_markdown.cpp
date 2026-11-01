@@ -11,6 +11,8 @@
 #include <QFile>
 #include <QFontInfo>
 #include <QGuiApplication>
+#include <QImage>
+#include <QPainter>
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -26,6 +28,7 @@ class MarkdownTest : public QObject
 private slots:
     void headingLevelAndScale();
     void headingSixUsesWeakColor();
+    void codeBlockIsOneContinuousRegion();
     void boldEmphasisInParagraph();
     void inlineCodeSpan();
     void fencedCodeBlockCarriesLanguage();
@@ -104,6 +107,50 @@ void MarkdownTest::boldEmphasisInParagraph()
     boldFormat.setFontWeight(QFont::Bold);
     QVERIFY(formatAt(block, block.text().indexOf(QStringLiteral("bold"))).fontWeight() == QFont::Bold);
     QVERIFY(formatAt(block, 0).fontWeight() == QFont::Normal);
+}
+
+void MarkdownTest::codeBlockIsOneContinuousRegion()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("```\nline1\n\nline2\n```\n"));
+    document.setTextWidth(600);
+
+    const int height = int(document.size().height()) + 2;
+    QImage image(600, height, QImage::Format_ARGB32);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    document.drawContents(&painter, QRectF(0, 0, 600, height));
+    painter.end();
+
+    const QRgb code = ThemeDefinition::light().markdown.codeBackground.rgb();
+
+    int first = -1;
+    int last = -1;
+    for (int y = 0; y < height; ++y) {
+        if (image.pixel(300, y) == code) {
+            if (first < 0)
+                first = y;
+            last = y;
+        }
+    }
+    QVERIFY(first >= 0);
+
+    // No unshaded row between the first and last row of the block: a blank
+    // line inside the fence must not split it into separate boxes.
+    for (int y = first; y <= last; ++y)
+        QCOMPARE(image.pixel(300, y), code);
+
+    // The shaded region spans (almost) the whole content width.
+    int left = -1;
+    int right = -1;
+    for (int x = 0; x < 600; ++x) {
+        if (image.pixel(x, (first + last) / 2) == code) {
+            if (left < 0)
+                left = x;
+            right = x;
+        }
+    }
+    QVERIFY(right - left > 400);
 }
 
 void MarkdownTest::inlineCodeSpan()

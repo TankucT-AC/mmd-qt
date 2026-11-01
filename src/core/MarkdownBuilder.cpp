@@ -184,6 +184,7 @@ private:
     bool m_inVerbatimBlock = false;
     bool m_verbatimPendingNewline = false;
     QTextBlockFormat m_verbatimBlockFormat;
+    QTextBlockFormat m_verbatimContinuationFormat;
 
     std::optional<TableState> m_table = std::nullopt;
     QStack<SavedState> m_cellStack;
@@ -378,11 +379,14 @@ QTextBlockFormat Builder::codeFormat(const QString &language) const
 {
     QTextBlockFormat format;
     format.setBackground(m_style.theme.markdown.codeBackground);
-    format.setTopMargin(8);
-    format.setBottomMargin(8);
-    format.setLeftMargin(10);
-    format.setRightMargin(10);
-    format.setLineHeight(130, QTextBlockFormat::ProportionalHeight);
+    // No per-line vertical spacing: consecutive code lines must form one
+    // continuous block. Outer spacing is added on the first and last line only.
+    format.setTopMargin(0);
+    format.setBottomMargin(0);
+    format.setLeftMargin(0);
+    format.setRightMargin(0);
+    // Horizontal padding as a text indent keeps the background full-width.
+    format.setTextIndent(10);
     format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Code));
     format.setProperty(MarkdownBuilder::languageKey, language);
     return format;
@@ -462,6 +466,8 @@ int Builder::enterBlock(MD_BLOCKTYPE type, void *detail)
         m_inVerbatimBlock = true;
         m_verbatimPendingNewline = false;
         m_verbatimBlockFormat = quoteWrap(codeFormat(decodeAttribute(code->lang)));
+        m_verbatimBlockFormat.setTopMargin(m_verbatimBlockFormat.topMargin() + 8);
+        m_verbatimContinuationFormat = quoteWrap(codeFormat(decodeAttribute(code->lang)));
         setPendingBlock(m_verbatimBlockFormat, codeCharFormat(), false);
         break;
     }
@@ -471,6 +477,8 @@ int Builder::enterBlock(MD_BLOCKTYPE type, void *detail)
         m_inVerbatimBlock = true;
         m_verbatimPendingNewline = false;
         m_verbatimBlockFormat = quoteWrap(format);
+        m_verbatimBlockFormat.setTopMargin(m_verbatimBlockFormat.topMargin() + 8);
+        m_verbatimContinuationFormat = quoteWrap(format);
         setPendingBlock(m_verbatimBlockFormat, codeCharFormat(), false);
         break;
     }
@@ -571,6 +579,13 @@ int Builder::leaveBlock(MD_BLOCKTYPE type, void *detail)
     case MD_BLOCK_CODE:
     case MD_BLOCK_HTML:
         startBlock();
+        // Close the block: give the last code line a bottom margin so the
+        // shaded region is separated from the following paragraph.
+        if (m_cursor.block().isValid()) {
+            QTextBlockFormat closing = m_cursor.blockFormat();
+            closing.setBottomMargin(8);
+            m_cursor.setBlockFormat(closing);
+        }
         m_inVerbatimBlock = false;
         break;
     case MD_BLOCK_HR:
@@ -677,7 +692,7 @@ void Builder::insertVerbatim(const QString &content)
         const QString line = newline < 0 ? content.mid(from) : content.mid(from, newline - from);
 
         if (m_verbatimPendingNewline) {
-            m_cursor.insertBlock(m_verbatimBlockFormat, m_blockCharFormat);
+            m_cursor.insertBlock(m_verbatimContinuationFormat, m_blockCharFormat);
             m_verbatimPendingNewline = false;
         }
         if (!line.isEmpty())
