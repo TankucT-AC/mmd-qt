@@ -1,0 +1,6 @@
+CompileFlags:
+  Remove: [-mno-direct-extern-access]
+  CompilationDatabase: "out/gcc-debug"
+
+Completion:
+  HeaderInsertion: Never
