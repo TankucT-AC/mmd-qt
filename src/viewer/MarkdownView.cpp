@@ -12,13 +12,16 @@
 #include <QAbstractTextDocumentLayout>
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QGuiApplication>
+#include <QLocale>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBlock>
+#include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QTextFrame>
 #include <QTimer>
@@ -120,11 +123,18 @@ void MarkdownView::setBaseDir(const QString &directory)
 void MarkdownView::setMarkdown(const QString &markdown)
 {
     m_source = markdown;
-    if (m_renderTimer->interval() == 0) {
+    // A fresh edit gives up any earlier "render anyway": keeping a huge document
+    // live is exactly what the size policy exists to prevent.
+    m_previewRequested = false;
+
+    const int interval = effectiveRenderInterval();
+    if (interval == 0) {
         rebuild();
     } else if (!m_renderTimer->isActive()) {
         // Coalesce: the first change arms the timer, later ones are absorbed.
-        m_renderTimer->start();
+        // A degraded document arms it with a longer interval, so a burst of
+        // keystrokes still costs one render rather than one per key.
+        m_renderTimer->start(interval);
     }
 }
 
@@ -150,8 +160,61 @@ void MarkdownView::setRenderInterval(int milliseconds)
     m_renderTimer->setInterval(milliseconds);
 }
 
+int MarkdownView::effectiveRenderInterval() const
+{
+    // The interval configured by the caller is the floor; a degraded document
+    // may ask for a longer one, so typing costs at most one render per interval
+    // instead of one per keystroke.
+    if (!m_limits.degraded())
+        return m_renderTimer->interval();
+    return (std::max)(m_renderTimer->interval(), m_limits.renderIntervalMs());
+}
+
+void MarkdownView::setDocumentLimits(const DocumentLimits &limits)
+{
+    const bool wasPaused = previewPaused();
+
+    m_limits = limits;
+    m_previewRequested = false;
+    m_codeHighlighter->setLimits(limits.codeHighlightMaxBlockChars(), limits.codeHighlightMaxTotalChars());
+
+    // Entering the paused state is cheap, so put the notice up at once.
+    // Leaving it must not redraw what is on screen: that could be the very
+    // document we are replacing. The caller's setMarkdown() renders the new one.
+    if (previewPaused()) {
+        if (!wasPaused)
+            rebuild();
+    } else {
+        m_showingPlaceholder = false;
+    }
+}
+
+bool MarkdownView::previewPaused() const
+{
+    return !m_limits.previewEnabled() && !m_previewRequested;
+}
+
+void MarkdownView::renderAnyway()
+{
+    m_previewRequested = true;
+    m_renderTimer->stop();
+    rebuild();
+}
+
 void MarkdownView::rebuild()
 {
+    if (previewPaused()) {
+        // The placeholder is cheap, but rebuilding it on every keystroke is
+        // still pointless work: once it is up, leave it alone.
+        if (!m_showingPlaceholder)
+            buildPlaceholder();
+        return;
+    }
+    m_showingPlaceholder = false;
+
+    QElapsedTimer timer;
+    timer.start();
+
     QScrollBar *scrollBar = verticalScrollBar();
     const int previousValue = scrollBar->value();
     const QString anchorText = cursorForPosition(QPoint(0, 0)).block().text();
@@ -190,6 +253,50 @@ void MarkdownView::rebuild()
         scrollBar->setValue(previousValue);
     }
 
+    m_lastRenderMs = int(timer.elapsed());
+    emit rendered();
+}
+
+void MarkdownView::buildPlaceholder()
+{
+    QTextDocument *target = document();
+    target->clear();
+    m_gifHandler->syncToDocument(); // stops animations from the previous render
+
+    const ThemeDefinition &theme = m_style.theme;
+
+    QTextCharFormat title;
+    title.setForeground(theme.markdown.heading);
+    title.setFont(m_style.fonts.headingFont(3));
+    title.setFontWeight(QFont::Bold);
+
+    QTextCharFormat body;
+    body.setForeground(theme.markdown.weakText);
+    body.setFont(m_style.fonts.bodyFont());
+
+    // A link, not a button: the renderer already routes anchors to the viewer,
+    // so the action needs no extra widget on top of the document.
+    QTextCharFormat action;
+    action.setForeground(theme.markdown.link);
+    action.setFont(m_style.fonts.bodyFont());
+    action.setAnchor(true);
+    action.setAnchorHref(QStringLiteral("mmd-action:render-preview"));
+
+    QTextBlockFormat centred;
+    centred.setAlignment(Qt::AlignHCenter);
+
+    QTextCursor cursor(target);
+    cursor.setBlockFormat(centred);
+    cursor.insertText(tr("Preview paused"), title);
+    cursor.insertBlock(centred);
+    cursor.insertText(
+        tr("This document is %1. Rendering it on every keystroke would freeze the window.").arg(QLocale().formattedDataSize(m_limits.sizeBytes())),
+        body);
+    cursor.insertBlock(centred);
+    cursor.insertText(tr("Render anyway"), action);
+
+    m_showingPlaceholder = true;
+    m_lastRenderMs = 0;
     emit rendered();
 }
 QVector<QTextFrame *> MarkdownView::codeFrames() const
@@ -359,6 +466,13 @@ bool MarkdownView::scrollToAnchor(const QString &slug)
 
 void MarkdownView::handleAnchor(const QUrl &url)
 {
+    // Our own links (the paused-preview action) never leave the application.
+    if (url.scheme() == QLatin1String("mmd-action")) {
+        if (url.path() == QLatin1String("render-preview"))
+            renderAnyway();
+        return;
+    }
+
     // In-document anchors scroll the preview instead of navigating away (which
     // would blank the view).
     if (url.hasFragment() && (url.path().isEmpty() || url.scheme() == QLatin1String("file"))) {

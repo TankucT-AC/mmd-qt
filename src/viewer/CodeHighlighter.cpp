@@ -67,10 +67,17 @@ Definition CodeHighlighter::definitionFor(const QString &language) const
     return definition;
 }
 
+void CodeHighlighter::setLimits(int maxBlockChars, int maxTotalChars)
+{
+    m_maxBlockChars = maxBlockChars;
+    m_maxTotalChars = maxTotalChars;
+}
+
 void CodeHighlighter::highlight(QTextDocument *document)
 {
     Definition currentDefinition;
     State state;
+    int highlightedChars = 0;
 
     for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
         const QTextBlockFormat format = block.blockFormat();
@@ -91,8 +98,22 @@ void CodeHighlighter::highlight(QTextDocument *document)
         if (!currentDefinition.isValid())
             continue;
 
+        if (m_maxTotalChars >= 0 && highlightedChars >= m_maxTotalChars)
+            break;
+
+        const QString text = block.text();
+        const qsizetype length = text.size();
+        if (m_maxBlockChars >= 0 && length > qsizetype(m_maxBlockChars)) {
+            // One enormous line is where the cost explodes. Drop the rest of the
+            // region rather than pay for it: a partly highlighted block would be
+            // more confusing than a plain one.
+            currentDefinition = Definition();
+            continue;
+        }
+
+        highlightedChars += int(length); // bounded by m_maxBlockChars when it is set
         m_block = block;
-        state = highlightLine(block.text(), state);
+        state = highlightLine(text, state);
     }
 }
 

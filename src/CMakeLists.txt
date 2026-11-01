@@ -23,6 +23,8 @@ add_library(mmd_core STATIC
     core/HtmlFragment.cpp
     core/ImageResolver.h
     core/ImageResolver.cpp
+    core/DocumentLimits.h
+    core/DocumentLimits.cpp
     core/SystemThemeProvider.h
     core/SystemThemeProvider.cpp
     core/MarkdownBuilder.h

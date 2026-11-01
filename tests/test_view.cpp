@@ -4,6 +4,7 @@
 #include <QtTest>
 
 #include "app/ScrollSync.h"
+#include "core/DocumentLimits.h"
 #include "core/Theme.h"
 #include "viewer/MarkdownView.h"
 
@@ -33,6 +34,10 @@ private slots:
     void codeFramesAreFoundAfterRender();
     void copyButtonCopiesTheCode();
     void anchorScrollsInsteadOfBlankTheView();
+    void hugeDocumentPausesThePreview();
+    void renderAnywayOverridesThePause();
+    void deferredDocumentStillRenders();
+    void smallDocumentRendersImmediately();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -258,6 +263,64 @@ void ViewTest::anchorScrollsInsteadOfBlankTheView()
     QVERIFY(!view.scrollToAnchor(QStringLiteral("does-not-exist")));
     QCOMPARE(view.verticalScrollBar()->value(), value);
     QVERIFY(!view.document()->isEmpty());
+}
+
+void ViewTest::hugeDocumentPausesThePreview()
+{
+    MarkdownView view;
+    view.setDocumentLimits(DocumentLimits::forSize(8 * 1024 * 1024)); // Manual tier
+    QVERIFY(view.previewPaused());
+
+    view.setMarkdown(QStringLiteral("# Title\n\ntext\n"));
+
+    const QString shown = view.document()->toPlainText();
+    QVERIFY(shown.contains(QStringLiteral("Preview paused")));
+    QVERIFY(!shown.contains(QStringLiteral("text")));
+    QCOMPARE(view.lastRenderMs(), 0); // nothing was rendered
+}
+
+void ViewTest::renderAnywayOverridesThePause()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+    view.setDocumentLimits(DocumentLimits::forSize(8 * 1024 * 1024));
+    view.setMarkdown(QStringLiteral("# Title\n\ntext\n"));
+    QVERIFY(view.document()->toPlainText().contains(QStringLiteral("Preview paused")));
+
+    view.renderAnyway();
+
+    QVERIFY(!view.previewPaused());
+    QVERIFY(view.document()->toPlainText().contains(QStringLiteral("text")));
+
+    // The next edit gives the pause back: a huge file is never live.
+    view.setMarkdown(QStringLiteral("# Title\n\nedited\n"));
+    QTRY_VERIFY_WITH_TIMEOUT(view.document()->toPlainText().contains(QStringLiteral("Preview paused")), 3000);
+}
+
+void ViewTest::deferredDocumentStillRenders()
+{
+    MarkdownView view;
+    view.setDocumentLimits(DocumentLimits::forSize(2 * 1024 * 1024)); // Deferred tier
+    QVERIFY(!view.previewPaused());
+
+    QSignalSpy spy(&view, &MarkdownView::rendered);
+    view.setMarkdown(QStringLiteral("# Title\n"));
+    QCOMPARE(spy.count(), 0); // held back until the typing pauses
+
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 3000);
+    QVERIFY(view.document()->toPlainText().contains(QStringLiteral("Title")));
+    QVERIFY(view.lastRenderMs() >= 0);
+}
+
+void ViewTest::smallDocumentRendersImmediately()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+    view.setDocumentLimits(DocumentLimits{}); // Interactive: nothing held back
+    QVERIFY(!view.previewPaused());
+
+    view.setMarkdown(QStringLiteral("# Title\n"));
+    QVERIFY(view.document()->toPlainText().contains(QStringLiteral("Title")));
 }
 
 QTEST_MAIN(ViewTest)

@@ -62,6 +62,25 @@ void MarkdownEditor::setTheme(const ThemeDefinition &theme)
     highlightCurrentLine();
 }
 
+void MarkdownEditor::setDocumentLimits(const DocumentLimits &limits)
+{
+    setHighlightingEnabled(limits.editorHighlightEnabled());
+}
+
+void MarkdownEditor::setHighlightingEnabled(bool enabled)
+{
+    if (m_highlightingEnabled == enabled)
+        return;
+
+    m_highlightingEnabled = enabled;
+    // Detaching stops the incremental per-block passes QSyntaxHighlighter runs
+    // while the user types. Colours already applied go away with the next
+    // setMarkdown(), which replaces the whole document.
+    m_highlighter->setDocument(enabled ? document() : nullptr);
+    if (enabled)
+        m_highlighter->rehighlight(); // Qt defers this; the text is on screen now
+}
+
 void MarkdownEditor::setMarkdown(const QString &markdown)
 {
     setPlainText(markdown);

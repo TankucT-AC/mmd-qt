@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "core/DocumentLimits.h"
 #include "core/ThemeManager.h"
 
 #include <QHash>
@@ -10,6 +11,7 @@
 
 class QAction;
 class QCloseEvent;
+class QLabel;
 class QSplitter;
 class FileDocument;
 class MarkdownEditor;
@@ -49,6 +51,9 @@ private:
     void restoreThemeSettings();
     void persistThemeSettings();
 
+    void updateStatusBar();
+    void updateRenderStatus();
+
     void newFile();
     void openFileDialog();
     bool saveFileAs();
@@ -63,6 +68,9 @@ private:
     ScrollSync *m_scrollSync = nullptr;
     FileDocument *m_file = nullptr;
     ThemeManager *m_themes = nullptr;
+    DocumentLimits m_limits;
+    QLabel *m_statusInfo = nullptr;
+    QLabel *m_statusRender = nullptr;
     QAction *m_toggleEditor = nullptr;
     QAction *m_toggleViewer = nullptr;
     QAction *m_customThemeAction = nullptr;

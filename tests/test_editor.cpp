@@ -20,6 +20,7 @@ private slots:
     void linkColored();
     void editorAppliesThemeAndCountsLines();
     void themeSwitchRehighlights();
+    void highlightingCanBeDetached();
 
 private:
     static QTextCharFormat formatAt(const QTextBlock &block, int position);
@@ -133,6 +134,23 @@ void EditorTest::themeSwitchRehighlights()
     highlighter->setTheme(ThemeDefinition::dark());
     const QColor after = formatAt(document->firstBlock(), 0).foreground().color();
     QVERIFY(before != after);
+}
+
+void EditorTest::highlightingCanBeDetached()
+{
+    MarkdownEditor editor;
+    editor.setDocumentLimits(DocumentLimits::forSize(8 * 1024 * 1024)); // Manual tier
+    QVERIFY(!editor.highlightingEnabled());
+
+    editor.setMarkdown(QStringLiteral("# Title\n"));
+    QCOMPARE(editor.document()->blockCount(), 2);
+    // No highlighter attached, so the heading stays plain.
+    QVERIFY(formatAt(editor.document()->firstBlock(), 0).fontWeight() != int(QFont::Bold));
+
+    // An ordinary-sized document brings the colours back on screen.
+    editor.setDocumentLimits(DocumentLimits{});
+    QVERIFY(editor.highlightingEnabled());
+    QCOMPARE(formatAt(editor.document()->firstBlock(), 0).fontWeight(), int(QFont::Bold));
 }
 
 QTEST_MAIN(EditorTest)

@@ -19,11 +19,14 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QLabel>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSettings>
 #include <QSplitter>
+#include <QStatusBar>
 
 namespace
 {
@@ -134,15 +137,22 @@ void MainWindow::buildUi()
 
     setCentralWidget(m_splitter);
 
+    m_statusInfo = new QLabel(this);
+    m_statusRender = new QLabel(this);
+    statusBar()->addWidget(m_statusInfo);
+    statusBar()->addPermanentWidget(m_statusRender);
+
     connect(m_editor, &QPlainTextEdit::textChanged, this, [this] {
         m_viewer->setMarkdown(m_editor->toPlainText());
     });
     connect(m_splitter, &QSplitter::splitterMoved, this, [this] {
         m_viewer->scheduleRerender();
     });
+    connect(m_viewer, &MarkdownView::rendered, this, &MainWindow::updateRenderStatus);
     m_scrollSync = new ScrollSync(m_editor, m_viewer, this);
 
     m_viewer->setMarkdown(m_editor->toPlainText());
+    updateStatusBar();
 }
 
 void MainWindow::buildMenus()
@@ -233,11 +243,43 @@ void MainWindow::applyTheme(const ThemeDefinition &theme)
 
 void MainWindow::applyFileContent(const QString &content, const QString &path)
 {
+    // Decide up front how much work this document is worth, before either pane
+    // sees it: the limits change what setMarkdown() does.
+    m_limits = DocumentLimits::forSize(content.toUtf8().size());
+    m_viewer->setDocumentLimits(m_limits);
+    m_editor->setDocumentLimits(m_limits);
+
     m_viewer->setBaseDir(path.isEmpty() ? QString() : QFileInfo(path).absolutePath());
     m_editor->setMarkdown(content);
     m_editor->document()->setModified(false);
     m_viewer->setMarkdown(content);
+    updateStatusBar();
     updateWindowTitle();
+}
+
+void MainWindow::updateStatusBar()
+{
+    const QString size = QLocale().formattedDataSize(m_limits.sizeBytes());
+    switch (m_limits.tier()) {
+    case DocumentLimits::Tier::Interactive:
+        m_statusInfo->setText(m_limits.sizeBytes() > 0 ? size : QString());
+        break;
+    case DocumentLimits::Tier::Deferred:
+        m_statusInfo->setText(tr("%1 · large file: the preview updates when typing pauses").arg(size));
+        break;
+    case DocumentLimits::Tier::Manual:
+        m_statusInfo->setText(tr("%1 · preview paused: too large to redraw while typing").arg(size));
+        break;
+    }
+}
+
+void MainWindow::updateRenderStatus()
+{
+    if (m_viewer->previewPaused()) {
+        m_statusRender->setText(tr("preview paused"));
+        return;
+    }
+    m_statusRender->setText(tr("rendered in %1 ms").arg(m_viewer->lastRenderMs()));
 }
 
 void MainWindow::updateWindowTitle()

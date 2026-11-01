@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "core/DocumentLimits.h"
 #include "core/Theme.h"
 
 #include <QPlainTextEdit>
@@ -23,6 +24,17 @@ public:
     explicit MarkdownEditor(QWidget *parent = nullptr);
 
     void setTheme(const ThemeDefinition &theme);
+
+    // Applies the document-size policy. Above a threshold the markdown
+    // highlighter is detached: re-highlighting a huge file on every keystroke
+    // costs far more than the colours are worth.
+    void setDocumentLimits(const DocumentLimits &limits);
+
+    void setHighlightingEnabled(bool enabled);
+    bool highlightingEnabled() const
+    {
+        return m_highlightingEnabled;
+    }
 
     // Replaces the whole document and re-highlights. Programmatic text
     // replacement needs an explicit rehighlight: the synchronous pass Qt runs
@@ -47,4 +59,5 @@ private:
     MarkdownHighlighter *m_highlighter = nullptr;
     LineNumberArea *m_lineNumberArea = nullptr;
     ThemeDefinition m_theme;
+    bool m_highlightingEnabled = true;
 };

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "core/DocumentLimits.h"
 #include "core/MarkdownBuilder.h"
 
 #include <QTextBrowser>
@@ -40,6 +41,25 @@ public:
     const RenderStyle &renderStyle() const;
 
     void setBaseDir(const QString &directory);
+
+    // Applies the document-size policy. For a document past the preview limit
+    // the pane shows a short explanation instead of the render, so editing
+    // stays responsive; renderAnyway() overrides that once.
+    void setDocumentLimits(const DocumentLimits &limits);
+
+    // Renders the current source even though the limits said not to. Wired to
+    // the "Render anyway" link of the paused-preview placeholder.
+    void renderAnyway();
+
+    // True while the source is too big to render without an explicit request.
+    bool previewPaused() const;
+
+    // Duration of the last rebuild in milliseconds; 0 while the preview is
+    // paused. Surfaced in the status bar.
+    int lastRenderMs() const
+    {
+        return m_lastRenderMs;
+    }
 
     // Schedules a render; calls within the interval are coalesced.
     void setMarkdown(const QString &markdown);
@@ -85,12 +105,15 @@ protected:
 
 private:
     void rebuild();
+    void buildPlaceholder();
+    int effectiveRenderInterval() const;
     void updateContentMargins();
     void updateHoveredFrame(const QPoint &pos);
     void drawCopyButton(QPainter &painter, const QRect &button, bool copied) const;
     void handleAnchor(const QUrl &url);
 
     RenderStyle m_style;
+    DocumentLimits m_limits;
     QString m_source;
     QTimer *m_renderTimer = nullptr;
     GifObjectHandler *m_gifHandler = nullptr;
@@ -101,4 +124,7 @@ private:
     QTextFrame *m_hoveredFrame = nullptr;
     QTextFrame *m_copiedFrame = nullptr;
     QTimer *m_copyFeedbackTimer = nullptr;
+    bool m_showingPlaceholder = false;
+    bool m_previewRequested = false; // the user asked for this one render
+    int m_lastRenderMs = 0;
 };
