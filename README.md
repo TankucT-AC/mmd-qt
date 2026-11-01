@@ -67,6 +67,10 @@ native.
 | **Copy code** | Hover a fenced block to reveal a copy button; one click puts its text on the clipboard. |
 | **Themes** | Light, Dark, **Follow System** (reads the desktop's own colour scheme — e.g. a KDE Plasma scheme, as Dolphin does) and Custom. Themes are data: any theme loads from JSON, and discovered system schemes are listed in the menu. The choice is remembered across runs. |
 | **Files** | Open, save, and follow external changes on disk — including the atomic-replace pattern most editors use. |
+| **Sidebar** | A dockable panel with two tabs: a **table of contents** built from the headings, and a **file browser** for a whole folder of markdown. Hiding it is one keystroke. |
+| **Outline** | Every heading, nested by level, generated from the rendered document rather than parsed a second time. Click one to jump there, and the section you are reading stays highlighted as you scroll. |
+| **Find** | `Ctrl+F` opens a find strip over the pane that has the focus: literal search with wrap-around, a match counter, match-case toggle and every hit highlighted in place. |
+| **Big documents** | The size policy keeps the window responsive: past 1 MB the preview updates when typing pauses, past 5 MB it waits behind a notice in the pane (with a "Render anyway" link) and the editor drops markdown highlighting. |
 
 ## Requirements
 
@@ -133,6 +137,11 @@ mmd --preview notes.md   # open with the source pane hidden
 
 | Shortcut | Action |
 |:---------|:-------|
+| `Ctrl+F` | Find in the focused pane |
+| `F3` / `Shift+F3` | Next / previous match |
+| `Esc` | Close the find strip |
+| `Ctrl+B` | Show/hide the **sidebar** |
+| `Ctrl+Shift+O` | Open a **folder** in the file browser |
 | `F9` | Show/hide the **source** pane |
 | `F10` | Show/hide the **preview** pane |
 | `Ctrl+N` | New document |
@@ -145,7 +154,8 @@ Themes live under **View → Theme**: *Follow System*, *Light*, *Dark*, *Custom*
 a list of **System Schemes** discovered on your desktop, and **Load Theme
 File…** to open any theme from JSON. External edits to an open file are picked
 up automatically; if you have unsaved changes you are asked before they are
-replaced.
+replaced. The sidebar remembers the last folder you opened, and the **Outline**
+tab follows the preview as you scroll.
 
 ## Architecture
 
@@ -154,19 +164,23 @@ one executable, with dependencies pointing strictly one way.
 
 ```text
 app/  ──▶  editor/  ──▶  core/        (MarkdownEditor, MarkdownHighlighter)
-      └──▶  viewer/  ──▶  core/        (MarkdownView, CodeHighlighter,
-                                       GifObjectHandler, CheckboxObjectHandler,
-                                       ChipObjectHandler)
+      ├──▶  viewer/  ──▶  core/        (MarkdownView, CodeHighlighter,
+      │                                FindBar, GifObjectHandler,
+      │                                CheckboxObjectHandler, ChipObjectHandler)
+      └──▶  app panels ──▶ core/       (OutlinePanel, FileTreePanel, FindBar)
 
-core/  MarkdownBuilder · Theme · ThemeManager · FontManager
-       FileDocument · ImageResolver · SystemThemeProvider · HtmlFragment
+core/  MarkdownBuilder · Outline · FindState · DocumentLimits · Theme ·
+       ThemeManager · FontManager · FileDocument · ImageResolver ·
+       SystemThemeProvider · HtmlFragment
 ```
 
 - **`core`** includes nothing from the layers above it, so the renderer
   (`MarkdownBuilder`) is a pure function of `(source, style)` and is tested
-  without a GUI.
+  without a GUI. The same holds for the three policies added later — `Outline`,
+  `FindState` and `DocumentLimits` are pure logic with their own unit tests.
 - **Signals are the only glue** between layers; the wiring lives in
-  `MainWindow`.
+  `MainWindow` and in `FindController`, which is the one place that knows how
+  the two find strips and the two panes fit together.
 - Two rendering techniques cooperate: `MarkdownBuilder` turns markdown into a
   `QTextDocument`, and `CodeHighlighter` tints the fenced code blocks inside it.
 
@@ -175,10 +189,11 @@ See [`STYLEGUIDE.md`](STYLEGUIDE.md) for the full rationale.
 ## Project layout
 
 ```text
-src/app/      MainWindow, scroll synchronisation
-src/core/     markdown -> QTextDocument, themes, fonts, files
+src/app/      MainWindow, sidebar panels, find controller, scroll synchronisation
+src/core/     markdown -> QTextDocument, outline, search, size policy,
+              themes, fonts, files
 src/editor/   the source pane: text editor + markdown highlighter
-src/viewer/   the preview pane + code highlighting + animated images
+src/viewer/   the preview pane + code highlighting + find strip + animated images
 tests/        one QTest binary per module, run through CTest
 third_party/  vendored md4c (MIT) and bundled fonts (OFL)
 src/doc/      reference documentation for the public classes

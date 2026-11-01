@@ -4,6 +4,7 @@
 #include "editor/MarkdownEditor.h"
 
 #include "core/FontManager.h"
+#include "core/Outline.h"
 #include "editor/MarkdownHighlighter.h"
 
 #include <QPainter>
@@ -181,6 +182,26 @@ void MarkdownEditor::clearFindMatches()
     m_findMatches.clear();
     m_findCurrent = -1;
     applyExtraSelections();
+}
+
+bool MarkdownEditor::gotoHeading(int index)
+{
+    if (index < 0)
+        return false;
+
+    const QVector<int> lines = Outline::headingSourceLines(toPlainText());
+    if (index >= lines.size())
+        return false;
+
+    const QTextBlock block = document()->findBlockByLineNumber(lines.at(index));
+    if (!block.isValid())
+        return false;
+
+    QTextCursor cursor(block);
+    cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    setTextCursor(cursor);
+    centerCursor();
+    return true;
 }
 
 void MarkdownEditor::lineNumberAreaPaintEvent(QPaintEvent *event)

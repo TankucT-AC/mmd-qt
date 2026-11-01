@@ -4,20 +4,25 @@
 #pragma once
 
 #include "core/DocumentLimits.h"
+#include "core/Outline.h"
 #include "core/ThemeManager.h"
 
 #include <QHash>
 #include <QMainWindow>
+#include <QVector>
 
 class QAction;
 class QCloseEvent;
+class QDockWidget;
 class QLabel;
 class QSplitter;
 class FileDocument;
+class FileTreePanel;
 class FindBar;
 class FindController;
 class MarkdownEditor;
 class MarkdownView;
+class OutlinePanel;
 class ScrollSync;
 
 class MainWindow : public QMainWindow
@@ -48,6 +53,7 @@ protected:
 private:
     void buildUi();
     void buildMenus();
+    void buildSidebar();
     void applyTheme(const ThemeDefinition &theme);
     void loadThemeFromFile();
     void restoreThemeSettings();
@@ -55,6 +61,11 @@ private:
 
     void updateStatusBar();
     void updateRenderStatus();
+
+    void openFolderDialog();
+    void setFolder(const QString &path);
+    void refreshOutline();
+    void activateOutlineEntry(int index);
 
     void newFile();
     void openFileDialog();
@@ -72,6 +83,10 @@ private:
     FindBar *m_editorBar = nullptr;
     FindBar *m_viewerBar = nullptr;
     FindController *m_find = nullptr;
+    QDockWidget *m_sidebar = nullptr;
+    OutlinePanel *m_outlinePanel = nullptr;
+    FileTreePanel *m_filesPanel = nullptr;
+    QVector<OutlineEntry> m_outline;
     ScrollSync *m_scrollSync = nullptr;
     FileDocument *m_file = nullptr;
     ThemeManager *m_themes = nullptr;

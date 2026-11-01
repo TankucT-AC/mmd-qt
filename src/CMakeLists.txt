@@ -13,6 +13,10 @@ add_library(mmd_core STATIC
     app/ScrollSync.cpp
     app/FindController.h
     app/FindController.cpp
+    app/OutlinePanel.h
+    app/OutlinePanel.cpp
+    app/FileTreePanel.h
+    app/FileTreePanel.cpp
     core/Theme.h
     core/Theme.cpp
     core/ThemeManager.h
@@ -29,6 +33,8 @@ add_library(mmd_core STATIC
     core/DocumentLimits.cpp
     core/FindState.h
     core/FindState.cpp
+    core/Outline.h
+    core/Outline.cpp
     core/SystemThemeProvider.h
     core/SystemThemeProvider.cpp
     core/MarkdownBuilder.h

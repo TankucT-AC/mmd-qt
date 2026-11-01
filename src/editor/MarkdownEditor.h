@@ -44,6 +44,11 @@ public:
     void setFindMatches(const QVector<FindState::Match> &matches, int currentIndex);
     void clearFindMatches();
 
+    // Moves the caret to the index-th ATX heading line of the source and selects
+    // it. Returns false when the source has no such heading — which is how a
+    // caller finds out that the renderer and the scan disagree.
+    bool gotoHeading(int index);
+
     // Replaces the whole document and re-highlights. Programmatic text
     // replacement needs an explicit rehighlight: the synchronous pass Qt runs
     // during setPlainText writes to a layout that is discarded afterwards.

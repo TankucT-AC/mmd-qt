@@ -3,7 +3,9 @@
 
 #include "app/MainWindow.h"
 
+#include "app/FileTreePanel.h"
 #include "app/FindController.h"
+#include "app/OutlinePanel.h"
 #include "app/ScrollSync.h"
 #include "core/FileDocument.h"
 #include "core/SystemThemeProvider.h"
@@ -16,6 +18,7 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -29,6 +32,7 @@
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
 namespace
@@ -82,6 +86,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     applyTheme(m_themes->currentTheme());
     restoreThemeSettings();
+    setFolder(QSettings().value(QStringLiteral("files/folder")).toString());
     updateWindowTitle();
     resize(1200, 800);
 }
@@ -175,8 +180,36 @@ void MainWindow::buildUi()
     connect(m_viewer, &MarkdownView::rendered, this, &MainWindow::updateRenderStatus);
     m_scrollSync = new ScrollSync(m_editor, m_viewer, this);
 
+    buildSidebar();
+
     m_viewer->setMarkdown(m_editor->toPlainText());
     updateStatusBar();
+}
+
+void MainWindow::buildSidebar()
+{
+    m_outlinePanel = new OutlinePanel(this);
+    m_filesPanel = new FileTreePanel(this);
+
+    auto *tabs = new QTabWidget(this);
+    tabs->setDocumentMode(true);
+    tabs->addTab(m_outlinePanel, tr("Outline"));
+    tabs->addTab(m_filesPanel, tr("Files"));
+
+    m_sidebar = new QDockWidget(tr("Sidebar"), this);
+    m_sidebar->setObjectName(QStringLiteral("sidebar"));
+    m_sidebar->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_sidebar->setWidget(tabs);
+    addDockWidget(Qt::LeftDockWidgetArea, m_sidebar);
+    resizeDocks({m_sidebar}, {240}, Qt::Horizontal);
+
+    connect(m_viewer, &MarkdownView::rendered, this, &MainWindow::refreshOutline);
+    connect(m_viewer, &MarkdownView::visibleHeadingChanged, m_outlinePanel, &OutlinePanel::setCurrentBlock);
+    connect(m_outlinePanel, &OutlinePanel::entryActivated, this, &MainWindow::activateOutlineEntry);
+    connect(m_filesPanel, &FileTreePanel::fileActivated, this, [this](const QString &path) {
+        if (maybeSave())
+            openFile(path);
+    });
 }
 
 void MainWindow::buildMenus()
@@ -184,6 +217,7 @@ void MainWindow::buildMenus()
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
     fileMenu->addAction(tr("&New"), QKeySequence::New, this, &MainWindow::newFile);
     fileMenu->addAction(tr("&Open…"), QKeySequence::Open, this, &MainWindow::openFileDialog);
+    fileMenu->addAction(tr("Open F&older…"), QKeySequence(QStringLiteral("Ctrl+Shift+O")), this, &MainWindow::openFolderDialog);
     fileMenu->addAction(tr("&Save"), QKeySequence::Save, this, &MainWindow::saveFile);
     fileMenu->addAction(tr("Save &As…"), QKeySequence::SaveAs, this, &MainWindow::saveFileAs);
     fileMenu->addSeparator();
@@ -201,6 +235,11 @@ void MainWindow::buildMenus()
     });
 
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
+
+    QAction *sidebarAction = m_sidebar->toggleViewAction();
+    sidebarAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
+    viewMenu->addAction(sidebarAction);
+    viewMenu->addSeparator();
 
     m_toggleEditor = viewMenu->addAction(tr("&Editor"));
     m_toggleEditor->setCheckable(true);
@@ -292,6 +331,7 @@ void MainWindow::applyFileContent(const QString &content, const QString &path)
     m_editor->setMarkdown(content);
     m_editor->document()->setModified(false);
     m_viewer->setMarkdown(content);
+    m_filesPanel->setCurrentFile(path);
     updateStatusBar();
     updateWindowTitle();
 }
@@ -319,6 +359,44 @@ void MainWindow::updateRenderStatus()
         return;
     }
     m_statusRender->setText(tr("rendered in %1 ms").arg(m_viewer->lastRenderMs()));
+}
+
+void MainWindow::openFolderDialog()
+{
+    const QString path = QFileDialog::getExistingDirectory(this, tr("Open Folder"), m_filesPanel->rootDirectory());
+    if (!path.isEmpty())
+        setFolder(path);
+}
+
+void MainWindow::setFolder(const QString &path)
+{
+    if (path.isEmpty() || !QFileInfo(path).isDir())
+        return;
+
+    m_filesPanel->setRootDirectory(path);
+    QSettings().setValue(QStringLiteral("files/folder"), path);
+}
+
+void MainWindow::refreshOutline()
+{
+    m_outline = Outline::fromDocument(*m_viewer->document());
+    m_outlinePanel->setOutline(m_outline);
+    m_outlinePanel->setCurrentBlock(m_viewer->visibleHeading());
+}
+
+void MainWindow::activateOutlineEntry(int index)
+{
+    if (index < 0 || index >= m_outline.size())
+        return;
+
+    const OutlineEntry &entry = m_outline.at(index);
+    m_viewer->scrollToBlock(entry.blockNumber);
+
+    // The editor locates headings by scanning the source, which can disagree
+    // with the renderer on exotic documents. Jumping somewhere wrong would be
+    // worse than not jumping at all, so the two lists have to agree first.
+    if (Outline::headingSourceLines(m_editor->toPlainText()).size() == m_outline.size())
+        m_editor->gotoHeading(index);
 }
 
 void MainWindow::updateWindowTitle()

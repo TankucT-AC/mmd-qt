@@ -33,6 +33,11 @@ namespace
 {
 // Coalesces bursts of edits into a single render; small enough to feel instant.
 constexpr int kDefaultRenderIntervalMs = 40;
+
+// A heading is scrolled to sit this far below the top edge, and the same slack
+// decides which heading counts as current. Sharing one value keeps the two
+// consistent: the section just scrolled to is always the one highlighted.
+constexpr int kHeadingTopGap = 8;
 }
 
 MarkdownView::MarkdownView(QWidget *parent)
@@ -93,6 +98,39 @@ void MarkdownView::resizeEvent(QResizeEvent *event)
     QTimer::singleShot(0, this, [this] {
         updateContentMargins();
     });
+}
+
+void MarkdownView::scrollContentsBy(int dx, int dy)
+{
+    QTextBrowser::scrollContentsBy(dx, dy);
+    updateVisibleHeading();
+}
+
+void MarkdownView::updateVisibleHeading()
+{
+    // The reading position is the top edge of the pane. Once the pane is scrolled
+    // to the end of the document there is nothing left to bring up, so the last
+    // visible line counts instead — otherwise clicking the final section would
+    // leave the outline pointing at the head of the document.
+    const QScrollBar *bar = verticalScrollBar();
+    const bool atBottom = bar->maximum() > 0 && bar->value() >= bar->maximum();
+    const int readingLine = atBottom ? viewport()->height() : kHeadingTopGap;
+
+    int found = -1;
+    for (QTextBlock block = document()->firstBlock(); block.isValid(); block = block.next()) {
+        if (block.blockFormat().intProperty(MarkdownBuilder::kindKey) != int(MarkdownBuilder::BlockKind::Heading))
+            continue;
+
+        QTextCursor cursor(block);
+        if (cursorRect(cursor).top() > readingLine)
+            break; // this one is still below the fold
+        found = block.blockNumber();
+    }
+
+    if (found == m_visibleHeading)
+        return;
+    m_visibleHeading = found;
+    emit visibleHeadingChanged(found);
 }
 
 void MarkdownView::updateContentMargins()
@@ -254,6 +292,7 @@ void MarkdownView::rebuild()
     }
 
     m_lastRenderMs = int(timer.elapsed());
+    updateVisibleHeading();
     emit rendered();
 }
 
@@ -297,6 +336,7 @@ void MarkdownView::buildPlaceholder()
 
     m_showingPlaceholder = true;
     m_lastRenderMs = 0;
+    updateVisibleHeading();
     emit rendered();
 }
 
@@ -501,6 +541,20 @@ void MarkdownView::drawCopyButton(QPainter &painter, const QRect &button, bool c
     }
 
     painter.restore();
+}
+
+bool MarkdownView::scrollToBlock(int blockNumber)
+{
+    const QTextBlock block = document()->findBlockByNumber(blockNumber);
+    if (!block.isValid())
+        return false;
+
+    QTextCursor cursor(block);
+    const int top = cursorRect(cursor).top();
+    // Land the heading at the top edge, with the same gap the "current section"
+    // rule tolerates, so the outline marks the section it just jumped to.
+    verticalScrollBar()->setValue(verticalScrollBar()->value() + top - kHeadingTopGap);
+    return true;
 }
 
 bool MarkdownView::scrollToAnchor(const QString &slug)

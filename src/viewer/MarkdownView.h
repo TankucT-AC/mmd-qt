@@ -55,6 +55,17 @@ public:
     // True while the source is too big to render without an explicit request.
     bool previewPaused() const;
 
+    // Scrolls the heading that lives in this rendered block to the top of the
+    // pane. Returns false when no such block exists.
+    bool scrollToBlock(int blockNumber);
+
+    // The heading currently at the top of the pane, as a block number, or -1
+    // while above the first heading.
+    int visibleHeading() const
+    {
+        return m_visibleHeading;
+    }
+
     // Duration of the last rebuild in milliseconds; 0 while the preview is
     // paused. Surfaced in the status bar.
     int lastRenderMs() const
@@ -102,8 +113,13 @@ public:
 signals:
     void rendered();
 
+    // The heading the reader is currently under, as a rendered block number, or
+    // -1 while above the first heading. Drives the outline panel.
+    void visibleHeadingChanged(int blockNumber);
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    void scrollContentsBy(int dx, int dy) override;
     void paintEvent(QPaintEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
@@ -113,6 +129,7 @@ private:
     void rebuild();
     void buildPlaceholder();
     void applyFindSelections();
+    void updateVisibleHeading();
     int effectiveRenderInterval() const;
     void updateContentMargins();
     void updateHoveredFrame(const QPoint &pos);
@@ -136,4 +153,5 @@ private:
     int m_lastRenderMs = 0;
     QVector<FindState::Match> m_findMatches;
     int m_findCurrent = -1;
+    int m_visibleHeading = -1;
 };
