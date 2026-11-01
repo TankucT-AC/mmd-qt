@@ -195,6 +195,8 @@ void MathTest::rendersAGalleryOfFormulas()
 
     const QStringList gallery = {
         QStringLiteral("E = mc^2"),
+        QStringLiteral("e^{i\\pi} + 1 = 0"),
+        QStringLiteral("\\int_0^{\\infty} e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2} \\sum_{k=1}^{n} k^2 = \\frac{n(n+1)(2n+1)}{6}"),
         QStringLiteral("\\sum_{i=1}^{n} x_i"),
         QStringLiteral("\\prod_{k=1}^{n} a_k"),
         QStringLiteral("\\int_0^{\\infty} e^{-x}\\,dx"),
