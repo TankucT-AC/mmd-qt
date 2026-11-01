@@ -1,147 +1,188 @@
-# Styleguide: как сделан этот проект
+# Styleguide: how mmd-qt is built
 
-Гайд описывает не «как рисовать приборы» (это [TUTORIAL.md](TUTORIAL.md)), а **архитектурные и процедурные решения** проекта: как организованы файлы, потоки, тесты и визуальный стиль. Все ссылки ведут на реальные файлы — это описание того, что уже работает, а не абстрактные советы.
+This guide is about the **architecture and process** of the project, not about
+any single widget. It is a description of what actually runs, with links to the
+real files. For the QPainter fundamentals kept from an earlier project, see
+[TUTORIAL.md](TUTORIAL.md); for rules you must follow when contributing, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-## 1. Карта проекта
+## 1. Map of the project
 
 ```
-common/    статическая библиотека протокола (TelemetryPacket) — без GUI, без сети
-sender/    консольный генератор UDP-датаграммов
-receiver/  GUI-приёмник: UdpWorker (поток приёма) + MainWindow/приборы + HistoryChart + Theme
-tests/     один QTest-бинарник на тестируемый модуль
+src/core/     parsing and data: markdown -> QTextDocument, themes, fonts, files
+src/editor/   the source pane: text editor + markdown highlighter
+src/viewer/   the preview pane: renderer + code highlighting + animated images
+src/app/      composition: the window, the scroll link
+tests/        one QTest binary per module, run through CTest
+third_party/  vendored md4c (MIT) and bundled fonts (OFL)
 ```
 
-Принцип: **`common` не знает про приложения, `sender` не знает про GUI, воркер не знает про виджеты**. Зависимости направлены в одну сторону: приложения → common; внутри receiver UI зависит от данных через сигналы, но не наоборот.
+Dependencies point one way: `app → viewer/editor → core`. **`core` includes
+nothing from the layers above it.** `core/MarkdownBuilder` does not know a
+widget exists; that is why it is testable without a GUI.
 
-## 2. Сигналы — единственный клей
+## 2. Widgets only
 
-Объекты не вызывают методы друг друга напрямую, если живут в разных «слоях». `UdpWorker` не хранит указатель на окно и не включает заголовки виджетов; он только испускает сигналы (`dataReceived`, `errorOccurred`, `errorCountChanged`). Вся проводка — в одном месте, в `receiver/main.cpp`:
+The UI is plain Qt Widgets: `QPainter`, `QTextDocument`, `QPlainTextEdit`,
+`QTextBrowser`. No QML, no Qt Quick, no web engine. This is a hard rule — see
+CONTRIBUTING.md — and it is what keeps the binary small and the startup instant.
+
+## 3. Signals are the only glue
+
+Layers do not call each other's methods when they live in different layers; they
+emit signals and the wiring lives in one place, `src/app/MainWindow.cpp`:
 
 ```cpp
-QObject::connect(worker, &UdpWorker::dataReceived, &window, &MainWindow::onTelemetryReceived);
+connect(m_editor, &QPlainTextEdit::textChanged, this, [this] {
+    m_viewer->setMarkdown(m_editor->toPlainText());
+});
+connect(m_file, &FileDocument::externallyChanged, this, &MainWindow::onExternalChange);
 ```
 
-Плюсы: классы тестируются по отдельности (тесты ловят сигналы `QSignalSpy`), поток delivery определяется автоматически (queued между потоками), зависимости видны по одному файлу.
+Each class is then testable on its own — the tests drive `MarkdownBuilder`,
+`FileDocument`, `ThemeManager` directly, with no window in sight.
 
-## 3. Потоки: worker + moveToThread
+## 4. Rendering is a pure function of state
 
-Единственный используемый паттерн — «объект-воркер на своём `QThread`» (не наследование от QThread):
+`MarkdownBuilder::build(document, source, style)` takes a source string and a
+style and produces a document. It reads no globals, mutates no shared state, and
+rebuilds **in place** rather than returning a new document. Consequences:
 
-```cpp
-auto *workerThread = new QThread;
-auto *worker = new UdpWorker(port);   // БЕЗ родителя — требование moveToThread
-worker->moveToThread(workerThread);
-connect(workerThread, &QThread::started, worker, &UdpWorker::start);
-connect(workerThread, &QThread::finished, worker, &QObject::deleteLater);
-connect(worker, &UdpWorker::dataReceived, &window, &MainWindow::onTelemetryReceived);
-workerThread->start();
-```
+- Live preview is cheap: a rebuild is just another call.
+- The document instance stays valid, so the GIF handler registration survives.
+- Tests assert on the resulting `QTextDocument` directly (`tests/test_markdown.cpp`).
 
-Правила, которые выработались здесь:
+`RenderStyle` bundles everything the renderer needs — theme, fonts, base
+directory, image cap — so adding a theme or a font set never touches the
+renderer's signature.
 
-- воркер создаётся без родителя, владение передаётся соединению `finished → deleteLater`;
-- всё состояние воркера трогается только в его потоке; наружу — только копии через сигналы (`TelemetryPacket` по значению);
-- UI трогается **только** из слотов главного потока; соединения с контекстом-приёмником (`&window`) гарантируют queued-доставку;
-- остановка: `quit()` → `wait()` с таймаутом (бесконечный `wait()` подвешивает приложение, если поток завис).
+## 5. Incremental rendering, honestly
 
-## 4. Визуальный стиль
+`MarkdownView::setMarkdown()` records the source and arms a single-shot timer.
+Further calls inside the window are absorbed, so a burst of keystrokes costs one
+rebuild, not one per key. `renderInterval == 0` renders synchronously and is
+what the tests use.
 
-### Семантические роли вместо цветов
+Re-rendering rebuilds the whole document. That is deliberate (KISS): md4c parses
+hundreds of kilobytes in milliseconds, and a block-level diff would add state
+for a problem we have not measured. The scroll position is preserved by
+anchoring on the top block, so the viewport does not jump while you type. If a
+very large document ever proves slow, the next step is to parse off the GUI
+thread — not to diff.
 
-Все цвета — в `receiver/Theme.h` и именованы по назначению: `gaugeFace`, `needle`, `ok`, `warn`, `crit`, `textDim`… В виджетах запрещено хардкодить `QColor` — читающий код должен понимать смысл, а не оттенок, а смена палитры не должна требовать обхода всех файлов.
+## 6. Themes: data, not code
 
-### Состояние ≠ только цвет
+All colors live in `ThemeDefinition` (`src/core/Theme.h`) and are named by role
+— `heading`, `link`, `codeBackground`, `quoteBar` — never by shade. Widgets and
+the renderer must not write literal `QColor`s. `ThemeManager` resolves the
+active `ThemeDefinition` from a *mode* (Light / Dark / System / Custom):
 
-Любое состояние дублируется текстом или формой: батарея — цвет заливки **и** суффикс `LOW`/`CRIT`; линия — `LIVE`/`LINK LOST` **и** затемнение приборов с надписью `NO DATA`; пауза — `PAUSED`. Это требование доступности (WCAG: цвет — не единственный носитель информации) и просто вежливость к дальтоникам и скриншотам в чёрно-белой печати.
+- **System** follows `QStyleHints::colorScheme()` and reacts to platform changes
+  live, so switching the desktop theme re-tints the running window.
+- **Custom** loads a theme from JSON (`ThemeDefinition::fromJson`), which is the
+  extension point for arbitrary user themes.
 
-### Тема: Fusion + QPalette
+Because color is a value type, a theme swap is just `setRenderStyle(newTheme)`
+followed by a rebuild — no code paths fork on "which theme".
 
-Тёмная тема собирается один раз в `main.cpp` через `QApplication::setStyle("Fusion")` + `QPalette` из `Theme.h`. Inline-стили (`setStyleSheet` на отдельных лейблах) не используются — они не масштабируются с системным DPI и расползаются по коду. Единственное оправданное исключение в проекте — динамическая перекраска `QProgressBar` через его собственную палитру.
+## 7. Typography
 
-### Типографика
+Typography is centralized in `FontManager` (`src/core/FontManager.h`): Inter for
+prose, JetBrains Mono for code, both OFL and compiled into the binary as Qt
+resources. A `FontSet::System` option falls back to the platform fonts. Heading
+sizes follow a modular scale (base 12 pt, ratio 1.2), so the hierarchy stays
+proportional if the base changes — no magic numbers scattered across files.
 
-Значения — системный моноширинный шрифт (`QFontDatabase::systemFont(FixedFont)` в `Theme::fixedFont`), кегли в **point size** (масштабируются с DPI, в отличие от px). `fixedFont` кэширует базовый шрифт в function-local static — создавать шрифт на каждый кадр дорого.
+## 8. Syntax highlighting
 
-### Анимация
+Two independent highlighters, both driven by the theme:
 
-Единственная анимация — демпфирование стрелок: τ = 150 мс (укладывается в правило «любая анимация ≤ 400 мс и функциональна»). Самоперерисовка троттлится до ~60 к/с через `QTimer::singleShot(16, ...)` в `BaseGaugeWidget::paintEvent` — без троттлинга виджет красится со скоростью event loop и жжёт CPU.
+- **Markdown source** (`editor/MarkdownHighlighter`, a `QSyntaxHighlighter`):
+  a lightweight visual aid for the person typing — headings, fences, spans,
+  links — with a block-state machine for multi-line fences.
+- **Fenced code** (`viewer/CodeHighlighter`, a KF6 `AbstractHighlighter`): each
+  fence is highlighted with its own language definition and a reset state, since
+  one document can mix C++, Python and Bash. The language comes from the block
+  property the builder set from the fence's info string.
 
-## 5. Кастомные виджеты: контракт
+One gotcha is worth recording: a `QSyntaxHighlighter` pass that runs *during*
+`setPlainText` writes to a layout that is discarded afterwards. Programmatic
+text replacement therefore goes through `MarkdownEditor::setMarkdown()`, which
+re-highlights explicitly.
 
-Формулируется одной строкой: **отрисовка — чистая функция от состояния, изменение состояния — через сеттер + `update()`**.
+## 9. Files and the outside world
 
-Следствия в коде:
+`FileDocument` (`src/core/FileDocument.h`) owns the file on disk. It watches the
+file *and its directory*, so it notices the atomic-replace pattern (write-temp,
+rename) most editors use. It never prompts; deciding what to do about an
+external change is `MainWindow`'s job, which is why the policy — reload
+silently, or ask before discarding unsaved edits — lives in one slot.
 
-- `paintEvent` ничего не «запоминает» между кадрами; всё пересчитывается из полей.
-- База (`BaseGaugeWidget`) забирает общее: виртуальные координаты −100..100, тайминг кадров, демпфирование (`stepTowards` / `stepTowardsAngle`), оверлей `NO DATA`. Наследники реализуют только `drawGauge`.
-- Похожие приборы не копируются, а параметризуются: `DialSpec` + `drawLinearDial` обслуживают и высотомер, и спидометр. Если два `drawGauge` совпадают на 90 % — выноси в базу.
-- Геометрия — именованными константами (`kTickOuterR`, `kNeedleLen`, …) рядом с классом. Магические 85/70/3 в формулах — путь к рассинхрону при правке.
-- Отдельная техника — `HistoryChart`: пиксельные координаты, кольцевой буфер, автоскейл. Не всё должно быть «прибором».
+## 10. Testing
 
-## 6. Протокол
-
-`common/TelemetryPacket.h` — единственный источник истины о wire-формате: смещения и размеры — `constexpr` в структуре, README-таблица — только документация. Сериализация — статические функции `pack` / `unpack` / `crc16`; результат валидации — `std::optional<TelemetryPacket>`. Правило строгой длины: датаграмм не ровно `PACKET_SIZE` байт отбраковывается на уровне воркера (`pendingDatagramSize()`), потому что `readDatagram` молча обрезает лишнее.
-
-## 7. Тестирование
-
-Формат: **один QTest-бинарник на тестируемый модуль** (`test_telemetry`, `test_udpworker`, `test_theme`), каждый зарегистрирован в `ctest`. Запуск:
+Format: **one QTest binary per module**, registered in CTest
 
 ```sh
-ctest --test-dir out/gcc-debug/tests                  # все
-./out/gcc-debug/tests/test_udpworker testBadPacketEmitsErrorCount   # один кейс
+ctest --preset gcc-debug                    # everything
+./out/gcc-debug/tests/test_markdown -functions   # list cases
 ```
 
-Что тестируется и как:
+What is tested, and how:
 
-- **чистая логика** (протокол, классификация батареи) — юнит-тестами, в том числе на граничных значениях (39/40, 24/25);
-- **воркер** — интеграционно через loopback: реальный `QUdpSocket` шлёт датаграммы на `boundPort()` (воркер запускается с портом 0 — ОС даёт свободный, коллизий нет); сигналы ловятся `QSignalSpy`, ожидание — `QTRY_COMPARE`;
-- **тестируемый файл из другого таргета** подключается компиляцией исходника прямо в тест (`../receiver/UdpWorker.cpp` в `tests/CMakeLists.txt`) — без перемонтажа CMake-дерева.
+- **pure logic** — the renderer (`test_markdown`), themes (`test_theme`), fonts
+  (`test_fonts`), file loading and watching (`test_file`) — by asserting on the
+  produced values, not on pixels.
+- **widgets that can be driven head-less** — the editor highlighter
+  (`test_editor`), the preview and scroll link (`test_view`), the GIF handler
+  (`test_gif`) — using `QT_QPA_PLATFORM=offscreen`.
+- **the composed window** — `test_app` builds a real `MainWindow` and exercises
+  open/save/external-change end to end.
+- **GUI painting is not unit-tested.** It is covered by the offscreen smoke run
+  below, exactly as CONTRIBUTING.md describes.
 
-Порядок работы — red → green: сначала тест, который не компилируется или падает, потом реализация. GUI-отрисовка тестами не покрывается — её заменяет offscreen smoke (см. §8).
+The order is red → green: write the failing test, then the implementation. The
+history of this repository is a sequence of such steps.
 
-## 8. Процесс: путь изменения кода
-
-Каждая правка в проекте проходит один и тот же конвейер:
+## 11. The pipeline for any change
 
 ```sh
-# 1. Тест на новое поведение (если оно тестируемо) — red
-# 2. Реализация — green
-cmake --build out/gcc-debug && ctest --test-dir out/gcc-debug/tests
+cmake --build --preset gcc-debug && ctest --preset gcc-debug   # tests
 
-# 3. Форматирование (конфиг уже в репозитории)
-clang-format -i <изменённые файлы>
+clang-format -i <files>                                        # formatting
 
-# 4. Smoke без монитора: приложение 3 с живыми данными
-QT_QPA_PLATFORM=offscreen ./out/gcc-debug/receiver/receiver -p 23456 &
-./out/gcc-debug/sender/sender -p 23456 -r 50 &
-# …убить через несколько секунд; крашей и ошибок в логе быть не должно
+QT_QPA_PLATFORM=offscreen ./out/gcc-debug/src/mmd sample.md    # smoke, no monitor
 
-# 5. Перед мержем — release-сборка вторым компилятором
-cmake --preset clang-release && cmake --build out/clang-release && ctest --test-dir out/clang-release/tests
+cmake --preset clang-release && cmake --build --preset clang-release && ctest --preset clang-release
 ```
 
-Коммиты — маленькие, с conventional-префиксами (`feat:`, `fix:`, `refactor:`, `docs:`), один логический шаг = один коммит. Пример разбиения большого изменения — история этого репозитория: rename → багфиксы → тема → приборы → CLI → пауза → статистика → CSV → графики.
+Commits are small and conventional (`feat:`, `fix:`, `refactor:`, `docs:`); one
+logical step per commit, and the tree builds and passes after every one.
 
-## 9. Ревью-чеклист (выжито из реального ревью)
+## 12. Review checklist
 
-Перед коммитом проверь — каждое из этих находок было настоящим багом:
+Drawn from bugs actually hit while building this project:
 
-- [ ] **Ошибки чтения/записи**: у `readDatagram`/`writeDatagram`/`QFile::open`/`QTextStream` проверяется результат; статус `QTextStream` «липкий» — при переоткрытии файла нужен `resetStatus()`.
-- [ ] **CLI-аргументы валидируются через `*ok`**: `toUShort(&ok)` и проверка диапазона. Невалидный `-p abc` молча даёт порт 0, `-r 0` — нуль-интервальный таймер-пулемёт.
-- [ ] **`pendingDatagramSize()` до чтения**: readDatagram обрезает лишнее молча.
-- [ ] **Самоперерисовка троттлится**, если виджет просит следующий кадр из `paintEvent`.
-- [ ] **Ничего не рисуется вне GUI-потока**; кросспоточные сигналы с POD-типами по значению.
-- [ ] **Бесконечных `wait()` нет** — только с таймаутом.
-- [ ] **Новые файлы с `Q_OBJECT` добавлены в CMakeLists** (`CMAKE_AUTOMOC` не найдёт их сам).
-- [ ] **Цвета — из `Theme.h`**, состояние дублировано текстом, не только цветом.
+- [ ] **Repo opens**: every `readDatagram`-class call — `QFile::open`,
+      `QFile::write` — has its result checked and surfaces an error.
+- [ ] **`QSyntaxHighlighter` after programmatic text**: call the explicit
+      re-highlight path (`setMarkdown`), not a bare `setPlainText`.
+- [ ] **Resources in a static library**: anything `qrc`-compiled needs
+      `Q_INIT_RESOURCE`, or the linker drops it (see `FontManager`).
+- [ ] **New `Q_OBJECT` files are in CMakeLists** (`CMAKE_AUTOMOC` cannot invent
+      a target).
+- [ ] **Colors come from the theme**, never a literal `QColor`.
+- [ ] **No unbounded `wait()`**, no GUI work off the GUI thread.
+- [ ] **Scroll/layout values guarded** against a zero range before dividing.
+- [ ] **License headers intact** and new files carry SPDX lines.
 
-## 10. Дальше по файлам
+## 13. Where to look next
 
-| Хочешь понять | Читай |
+| To understand | Read |
 |---|---|
-| Как устроен прибор | [TUTORIAL.md](TUTORIAL.md), затем `receiver/MainWindow.cpp` |
-| Палитра и типографика | `receiver/Theme.h`, палитра в `receiver/main.cpp` |
-| Потоки и сеть | `receiver/UdpWorker.cpp`, проводка в `receiver/main.cpp` |
-| Графики истории | `receiver/HistoryChart.cpp` |
-| Протокол | `common/TelemetryPacket.h` + `common/doc/TelemetryPacket.md` |
-| Тесты | `tests/` — три бинарника как три образца разных стилей тестирования |
+| How markdown becomes a document | `src/core/MarkdownBuilder.h`, then the tests |
+| Themes and typography | `src/core/Theme.h`, `src/core/FontManager.h` |
+| Live preview and scroll sync | `src/viewer/MarkdownView.cpp`, `src/app/ScrollSync.cpp` |
+| Code highlighting | `src/viewer/CodeHighlighter.cpp` |
+| Files and watching | `src/core/FileDocument.cpp` |
+| How it is all wired | `src/app/MainWindow.cpp` |
+| QPainter fundamentals | [TUTORIAL.md](TUTORIAL.md) |
