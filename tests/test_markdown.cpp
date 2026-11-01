@@ -36,6 +36,8 @@ private slots:
     void htmlInlineTagsAreApplied();
     void htmlKbdAndRemoteImageBecomeChips();
     void calloutIsRendered();
+    void headingSlugsMatchGithubStyle();
+    void htmlImageHonoursWidthAttribute();
     void readmeRendersWithoutLiteralHtml();
     void boldEmphasisInParagraph();
     void inlineCodeSpan();
@@ -144,7 +146,7 @@ void MarkdownTest::boldEmphasisInParagraph()
 
     QTextCharFormat boldFormat;
     boldFormat.setFontWeight(QFont::Bold);
-    QVERIFY(formatAt(block, block.text().indexOf(QStringLiteral("bold"))).fontWeight() == QFont::Bold);
+    QVERIFY(formatAt(block, int(block.text().indexOf(QStringLiteral("bold")))).fontWeight() == QFont::Bold);
     QVERIFY(formatAt(block, 0).fontWeight() == QFont::Normal);
 }
 
@@ -224,7 +226,7 @@ void MarkdownTest::inlineCodeSpan()
     QTextDocument document;
     render(&document, QStringLiteral("a `code` b\n"));
     const QTextBlock block = document.firstBlock();
-    const int at = block.text().indexOf(QStringLiteral("code"));
+    const int at = int(block.text().indexOf(QStringLiteral("code")));
 
     const QTextCharFormat format = formatAt(block, at);
     QCOMPARE(format.font().family(), QStringLiteral("JetBrains Mono"));
@@ -315,7 +317,7 @@ void MarkdownTest::taskList()
                 QVERIFY(!checked);
         }
         // Done items must NOT be struck through any more.
-        const int at = block.text().indexOf(QStringLiteral("done"));
+        const int at = int(block.text().indexOf(QStringLiteral("done")));
         if (at >= 0)
             QVERIFY(!formatAt(block, at).fontStrikeOut());
     }
@@ -348,7 +350,7 @@ void MarkdownTest::linkSpan()
     QTextDocument document;
     render(&document, QStringLiteral("[site](https://example.com)\n"));
     const QTextBlock block = document.firstBlock();
-    const int at = block.text().indexOf(QStringLiteral("site"));
+    const int at = int(block.text().indexOf(QStringLiteral("site")));
 
     bool found = false;
     for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
@@ -369,7 +371,7 @@ void MarkdownTest::strikethroughSpan()
     QTextDocument document;
     render(&document, QStringLiteral("~~gone~~\n"));
     const QTextBlock block = document.firstBlock();
-    const int at = block.text().indexOf(QStringLiteral("gone"));
+    const int at = int(block.text().indexOf(QStringLiteral("gone")));
     QVERIFY(formatAt(block, at).fontStrikeOut());
 }
 
@@ -433,7 +435,7 @@ void MarkdownTest::animatedImageBecomesObject()
     for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
         for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
             const QTextCharFormat format = it.fragment().charFormat();
-            if (int(format.objectType()) == MarkdownBuilder::gifObjectType)
+            if (format.objectType() == MarkdownBuilder::gifObjectType)
                 found = true;
         }
     }
@@ -566,9 +568,9 @@ void MarkdownTest::htmlInlineTagsAreApplied()
 
     const QTextBlock block = document.firstBlock();
     QVERIFY(block.isValid());
-    QCOMPARE(formatAt(block, block.text().indexOf(QStringLiteral("BOLD"))).fontWeight(), int(QFont::Bold));
-    QCOMPARE(formatAt(block, block.text().indexOf(QStringLiteral("CODE"))).background().color(), ThemeDefinition::light().markdown.codeBackground);
-    QCOMPARE(formatAt(block, block.text().indexOf(QStringLiteral("SUB"))).verticalAlignment(), QTextCharFormat::AlignSubScript);
+    QCOMPARE(formatAt(block, int(block.text().indexOf(QStringLiteral("BOLD")))).fontWeight(), int(QFont::Bold));
+    QCOMPARE(formatAt(block, int(block.text().indexOf(QStringLiteral("CODE")))).background().color(), ThemeDefinition::light().markdown.codeBackground);
+    QCOMPARE(formatAt(block, int(block.text().indexOf(QStringLiteral("SUB")))).verticalAlignment(), QTextCharFormat::AlignSubScript);
 }
 
 void MarkdownTest::htmlKbdAndRemoteImageBecomeChips()
@@ -609,6 +611,40 @@ void MarkdownTest::calloutIsRendered()
             continue;
         QCOMPARE(cell.format().toTableCellFormat().leftBorderBrush().color(), ThemeDefinition::light().markdown.link);
         found = true;
+    }
+    QVERIFY(found);
+}
+
+void MarkdownTest::headingSlugsMatchGithubStyle()
+{
+    QCOMPARE(MarkdownBuilder::headingSlug(QStringLiteral("Key features")), QStringLiteral("key-features"));
+    QCOMPARE(MarkdownBuilder::headingSlug(QStringLiteral("Getting started")), QStringLiteral("getting-started"));
+    QCOMPARE(MarkdownBuilder::headingSlug(QStringLiteral("Licensing rules (mandatory)")), QStringLiteral("licensing-rules-mandatory"));
+    QCOMPARE(MarkdownBuilder::headingSlug(QStringLiteral("C++20 & Qt")), QStringLiteral("c20--qt"));
+}
+
+void MarkdownTest::htmlImageHonoursWidthAttribute()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    QTextDocument document;
+    render(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"60\">\n"), dir.path());
+
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid() && !found; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QTextImageFormat imageFormat = format.toImageFormat();
+            QCOMPARE(int(imageFormat.width()), 60);
+            QCOMPARE(int(imageFormat.height()), 12); // 200x40 scaled to width 60
+            found = true;
+        }
     }
     QVERIFY(found);
 }

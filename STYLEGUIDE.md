@@ -209,6 +209,14 @@ cmake --preset clang-release && cmake --build --preset clang-release && ctest --
 Commits are small and conventional (`feat:`, `fix:`, `refactor:`, `docs:`); one
 logical step per commit, and the tree builds and passes after every one.
 
+Warnings are strict: `mmd_warnings` (an `INTERFACE` library) enables an
+aggressive set of `-W` flags for the project's own translation units, gated by
+compiler with generator expressions. `-Werror` is deliberately **not** set, so a
+warning never blocks a build — but the tree is kept warning-free under both GCC
+and Clang. `-ansi` is not used (it would force C++98), and `_GLIBCXX_DEBUG` is
+not used either: it changes the `std` container ABI and is incompatible with the
+system Qt build.
+
 ## 13. Review checklist
 
 Drawn from bugs actually hit while building this project:

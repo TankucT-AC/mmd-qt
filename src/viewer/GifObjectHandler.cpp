@@ -101,11 +101,11 @@ QSizeF GifObjectHandler::intrinsicSize(QTextDocument *document, int posInDocumen
 
 void GifObjectHandler::drawObject(QPainter *painter, const QRectF &rect, QTextDocument *document, int posInDocument, const QTextFormat &format)
 {
+    Q_UNUSED(document);
     const QString path = format.property(MarkdownBuilder::gifPathKey).toString();
     if (path.isEmpty())
         return;
 
-    QMovie *movie = movieFor(path);
     m_positions.insert(path, posInDocument);
     const QPixmap frame = scaledFrame(path, rect.size().toSize());
     if (frame.isNull())

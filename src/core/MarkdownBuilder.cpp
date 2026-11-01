@@ -91,6 +91,18 @@ qreal devicePixelRatio()
     return 1.0;
 }
 
+// Parses an HTML length such as "120", "120px" or "50%" into a pixel count.
+// Returns 0 when there is no usable number.
+int htmlDimension(const QString &value)
+{
+    const QString digits = QString(value).remove(QRegularExpression(QStringLiteral("[^0-9]")));
+    if (digits.isEmpty())
+        return 0;
+    bool ok = false;
+    const int pixels = digits.toInt(&ok);
+    return ok && pixels > 0 ? pixels : 0;
+}
+
 // Rasterises an SVG at the requested pixel size with antialiasing, so scaled
 // vector art stays smooth instead of showing stair-stepped edges.
 QImage rasteriseSvg(const QString &path, const QSize &pixelSize)
@@ -181,7 +193,7 @@ private:
 
     void setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList);
     void startBlock();
-    void insertImageElement(const QString &source, const QString &alt);
+    void insertImageElement(const QString &source, const QString &alt, int htmlWidth = 0);
     void insertChip(const QString &text, MarkdownBuilder::ChipKind kind);
     void insertVerbatim(const QString &content);
     void startVerbatimFrame(const QColor &background, const QString &language);
@@ -208,6 +220,7 @@ private:
     QTextCharFormat ruleCharFormat() const;
 
     QTextBlockFormat paragraphFormat() const;
+    QTextBlockFormat centeredParagraphFormat() const;
     QTextBlockFormat headingFormat(int level) const;
     QTextBlockFormat codeFormat(const QString &language) const;
     QTextFrameFormat codeFrameFormat(const QColor &background) const;
@@ -342,7 +355,7 @@ void Builder::startBlock()
             // Task lists show the checkbox instead of a bullet (Zed/GitHub style).
             if (m_taskPending)
                 listFormat.setStyle(QTextListFormat::ListStyleUndefined);
-            listFormat.setIndent(m_lists.size() + 1);
+            listFormat.setIndent(int(m_lists.size()) + 1);
             m_lists.append(m_cursor.createList(listFormat));
         } else if (!m_lists.isEmpty() && m_lists.last()->itemNumber(m_cursor.block()) < 0) {
             m_lists.last()->add(m_cursor.block());
@@ -352,7 +365,7 @@ void Builder::startBlock()
     } else if (!m_lists.isEmpty() && m_inListItem && m_listItemFirstBlockDone) {
         // Continuation paragraph inside a list item: align with the markers.
         QTextBlockFormat adjusted = m_cursor.block().blockFormat();
-        adjusted.setIndent(m_lists.size());
+        adjusted.setIndent(int(m_lists.size()));
         m_cursor.setBlockFormat(adjusted);
     }
 
@@ -440,6 +453,14 @@ QTextBlockFormat Builder::paragraphFormat() const
     QTextBlockFormat format;
     format.setLineHeight(122, QTextBlockFormat::ProportionalHeight);
     format.setBottomMargin(3);
+    return format;
+}
+
+QTextBlockFormat Builder::centeredParagraphFormat() const
+{
+    QTextBlockFormat format = paragraphFormat();
+    if (m_htmlCenterDepth > 0)
+        format.setAlignment(Qt::AlignHCenter);
     return format;
 }
 
@@ -578,6 +599,10 @@ QString Builder::linkFor(const QString &href) const
 {
     if (href.isEmpty())
         return QString();
+
+    // In-document anchors stay fragments; the view handles them itself.
+    if (href.startsWith(QLatin1Char('#')))
+        return href;
 
     const QUrl url(href);
     if (!url.scheme().isEmpty())
@@ -901,7 +926,7 @@ void Builder::insertVerbatim(const QString &content)
 {
     int from = 0;
     while (from < content.size()) {
-        const int newline = content.indexOf(QLatin1Char('\n'), from);
+        const int newline = int(content.indexOf(QLatin1Char('\n'), from));
         const QString line = newline < 0 ? content.mid(from) : content.mid(from, newline - from);
 
         if (m_verbatimPendingNewline) {
@@ -986,7 +1011,7 @@ int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
     return 0;
 }
 
-void Builder::insertImageElement(const QString &source, const QString &alt)
+void Builder::insertImageElement(const QString &source, const QString &alt, int htmlWidth)
 {
     const QString path = ImageResolver::resolve(source, m_style.baseDir);
 
@@ -1024,9 +1049,14 @@ void Builder::insertImageElement(const QString &source, const QString &alt)
         natural = QImageReader(path).size();
 
     QSize display = natural;
-    if (natural.isValid() && natural.width() > m_style.maxImageWidth) {
-        display.setWidth(m_style.maxImageWidth);
-        display.setHeight(qRound(qreal(natural.height()) * m_style.maxImageWidth / natural.width()));
+    if (natural.isValid() && natural.width() > 0) {
+        // Honour an explicit HTML width, and always cap to the render style.
+        int desired = htmlWidth > 0 ? htmlWidth : natural.width();
+        desired = (std::min)(desired, m_style.maxImageWidth);
+        if (desired > 0 && desired != natural.width()) {
+            display.setWidth(desired);
+            display.setHeight(qRound(qreal(natural.height()) * desired / natural.width()));
+        }
     }
 
     // SVG is resolution-independent: rasterise it at the device pixel size with
@@ -1049,7 +1079,7 @@ void Builder::insertImageElement(const QString &source, const QString &alt)
 
     QTextImageFormat format;
     format.setName(path);
-    if (natural.isValid() && natural.width() > m_style.maxImageWidth) {
+    if (display.isValid() && display != natural) {
         format.setWidth(display.width());
         format.setHeight(display.height());
     }
@@ -1078,11 +1108,11 @@ void Builder::emitTable()
     format.setColumnWidthConstraints(constraints);
 
     QTextTable *target = m_cursor.insertTable(int(table.rows.size()), int(table.columns), format);
-    for (int row = 0; row < int(table.rows.size()); ++row) {
-        const int columns = (std::min)(int(table.columns), int(table.rows[row].size()));
-        for (int column = 0; column < columns; ++column) {
+    for (std::size_t row = 0; row < table.rows.size(); ++row) {
+        const std::size_t columns = (std::min)(std::size_t(table.columns), table.rows[row].size());
+        for (std::size_t column = 0; column < columns; ++column) {
             const Cell &cell = table.rows[row][column];
-            QTextCursor cellCursor = target->cellAt(row, column).firstCursorPosition();
+            QTextCursor cellCursor = target->cellAt(int(row), int(column)).firstCursorPosition();
             if (cell.document)
                 cellCursor.insertFragment(QTextDocumentFragment(cell.document.get()));
             if (cell.alignment != Qt::AlignLeft) {
@@ -1094,7 +1124,7 @@ void Builder::emitTable()
                 QTextTableCellFormat cellFormat;
                 cellFormat.setBackground(m_style.theme.markdown.tableHeaderBackground);
                 cellFormat.setFontWeight(QFont::Bold);
-                target->cellAt(row, column).setFormat(cellFormat);
+                target->cellAt(int(row), int(column)).setFormat(cellFormat);
             }
         }
     }
@@ -1160,7 +1190,9 @@ void Builder::applyInlineHtml(const QString &html)
                 m_cursor.insertText(QString(QChar(0x2028)), composeCharFormat());
             } else if (name == QLatin1String("img")) {
                 startBlock();
-                insertImageElement(htmlAttribute(token, QStringLiteral("src")), htmlAttribute(token, QStringLiteral("alt")));
+                insertImageElement(htmlAttribute(token, QStringLiteral("src")),
+                                   htmlAttribute(token, QStringLiteral("alt")),
+                                   htmlDimension(htmlAttribute(token, QStringLiteral("width"))));
             } else if (!token.selfClosing && !isHtmlVoidElement(name)) {
                 m_htmlTagStack.append(QString()); // unknown container: balanced no-op
             }
@@ -1320,8 +1352,12 @@ void Builder::renderHtmlBlock(const QString &html)
 
         if ((token.kind == HtmlToken::StartTag || token.kind == HtmlToken::SelfClosingTag) && token.name == QLatin1String("img")) {
             handled = true;
-            startBlock();
-            insertImageElement(htmlAttribute(token, QStringLiteral("src")), htmlAttribute(token, QStringLiteral("alt")));
+            if (!m_firstBlock)
+                m_cursor.insertBlock(centeredParagraphFormat(), bodyCharFormat());
+            m_firstBlock = false;
+            insertImageElement(htmlAttribute(token, QStringLiteral("src")),
+                               htmlAttribute(token, QStringLiteral("alt")),
+                               htmlDimension(htmlAttribute(token, QStringLiteral("width"))));
             continue;
         }
 
@@ -1356,7 +1392,7 @@ void Builder::renderHtmlBlock(const QString &html)
         const QString raw = html.trimmed();
         if (!raw.isEmpty()) {
             if (!m_firstBlock)
-                m_cursor.insertBlock(paragraphFormat(), bodyCharFormat());
+                m_cursor.insertBlock(centeredParagraphFormat(), bodyCharFormat());
             m_firstBlock = false;
             QTextCharFormat format = codeCharFormat();
             format.setForeground(m_style.theme.markdown.weakText);
@@ -1428,4 +1464,18 @@ bool MarkdownBuilder::build(QTextDocument *target, const QString &markdown, cons
 {
     Builder builder(target, style);
     return builder.run(markdown);
+}
+
+QString MarkdownBuilder::headingSlug(const QString &heading)
+{
+    QString slug;
+    slug.reserve(heading.size());
+    for (const QChar character : heading) {
+        if (character.isLetterOrNumber() || character == QLatin1Char('_') || character == QLatin1Char('-'))
+            slug += character.toLower();
+        else if (character.isSpace())
+            slug += QLatin1Char('-');
+        // everything else (punctuation) is dropped, like GitHub does
+    }
+    return slug;
 }

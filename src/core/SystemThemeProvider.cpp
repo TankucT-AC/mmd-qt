@@ -35,7 +35,7 @@ IniGroups parseIni(const QString &path)
             section = line.mid(1, line.size() - 2).trimmed();
             continue;
         }
-        const int equals = line.indexOf(QLatin1Char('='));
+        const int equals = int(line.indexOf(QLatin1Char('=')));
         if (equals < 0)
             continue;
         const QString key = line.left(equals).trimmed();
@@ -73,7 +73,10 @@ QColor readColor(const IniGroups &groups, const QString &section, const QString 
 
 QColor blend(const QColor &a, const QColor &b, qreal t)
 {
-    return QColor::fromRgbF(a.redF() * (1 - t) + b.redF() * t, a.greenF() * (1 - t) + b.greenF() * t, a.blueF() * (1 - t) + b.blueF() * t);
+    const qreal r = a.redF() * (1 - t) + b.redF() * t;
+    const qreal g = a.greenF() * (1 - t) + b.greenF() * t;
+    const qreal bl = a.blueF() * (1 - t) + b.blueF() * t;
+    return QColor::fromRgbF(float(r), float(g), float(bl));
 }
 
 } // namespace

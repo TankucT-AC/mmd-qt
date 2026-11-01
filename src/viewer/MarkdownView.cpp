@@ -11,6 +11,7 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QClipboard>
+#include <QDesktopServices>
 #include <QEvent>
 #include <QGuiApplication>
 #include <QMouseEvent>
@@ -39,9 +40,10 @@ MarkdownView::MarkdownView(QWidget *parent)
     , m_chipHandler(new ChipObjectHandler(this))
     , m_codeHighlighter(new CodeHighlighter)
 {
-    setOpenExternalLinks(true);
-    setOpenLinks(true);
+    setOpenExternalLinks(false);
+    setOpenLinks(false);
     setFrameShape(QFrame::NoFrame);
+    connect(this, &QTextBrowser::anchorClicked, this, &MarkdownView::handleAnchor);
 
     document()->documentLayout()->registerHandler(MarkdownBuilder::gifObjectType, m_gifHandler);
     document()->documentLayout()->registerHandler(MarkdownBuilder::checkboxObjectType, m_checkboxHandler);
@@ -303,7 +305,7 @@ void MarkdownView::drawCopyButton(QPainter &painter, const QRect &button, bool c
     painter.setRenderHint(QPainter::Antialiasing, true);
 
     const QColor ink = m_style.theme.markdown.codeText;
-    constexpr qreal kChipAlpha = 26.0 / 255.0;
+    constexpr float kChipAlpha = 26.0f / 255.0f;
     QColor chip = ink;
     chip.setAlpha(26);
     QColor border = ink;
@@ -341,4 +343,34 @@ void MarkdownView::drawCopyButton(QPainter &painter, const QRect &button, bool c
     }
 
     painter.restore();
+}
+
+bool MarkdownView::scrollToAnchor(const QString &slug)
+{
+    for (QTextBlock block = document()->firstBlock(); block.isValid(); block = block.next()) {
+        if (block.blockFormat().intProperty(MarkdownBuilder::kindKey) != int(MarkdownBuilder::BlockKind::Heading))
+            continue;
+        if (MarkdownBuilder::headingSlug(block.text()) != slug)
+            continue;
+
+        QTextCursor cursor(block);
+        const int top = cursorRect(cursor).top();
+        verticalScrollBar()->setValue(verticalScrollBar()->value() + top - 8);
+        return true;
+    }
+    return false;
+}
+
+void MarkdownView::handleAnchor(const QUrl &url)
+{
+    // In-document anchors scroll the preview instead of navigating away (which
+    // would blank the view).
+    if (url.hasFragment() && (url.path().isEmpty() || url.scheme() == QLatin1String("file"))) {
+        if (scrollToAnchor(url.fragment()))
+            return;
+    }
+
+    if (url.scheme() == QLatin1String("http") || url.scheme() == QLatin1String("https"))
+        QDesktopServices::openUrl(url);
+    // Other schemes (mailto, relative files) are left untouched on purpose.
 }

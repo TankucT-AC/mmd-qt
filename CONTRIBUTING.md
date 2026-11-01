@@ -166,6 +166,11 @@ bugs here (unchecked I/O, a `QSyntaxHighlighter` pass after programmatic text,
   no `Q_ASSERT` as a release-mode null guard, no unbounded `wait()`.
 - **Colors and fonts come from the theme**, never from literals in widgets or
   the renderer.
+- **Warnings are strict.** The `mmd_warnings` interface library enables an
+  aggressive warning set (`-Wall -Wextra -Wconversion -Wshadow -Wold-style-cast`
+  and more). The tree builds with **zero warnings** under both GCC and Clang —
+  keep it that way. The flags live in the top-level `CMakeLists.txt`; add new
+  ones there rather than per-target.
 
 ## Commit conventions
 

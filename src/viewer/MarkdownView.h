@@ -69,6 +69,10 @@ public:
     // copy button. Returns true when something was copied.
     bool copyCodeAt(const QPoint &viewportPos);
 
+    // Scrolls to the heading whose GitHub anchor is `slug`. Returns false when
+    // no heading matches.
+    bool scrollToAnchor(const QString &slug);
+
 signals:
     void rendered();
 
@@ -84,6 +88,7 @@ private:
     void updateContentMargins();
     void updateHoveredFrame(const QPoint &pos);
     void drawCopyButton(QPainter &painter, const QRect &button, bool copied) const;
+    void handleAnchor(const QUrl &url);
 
     RenderStyle m_style;
     QString m_source;

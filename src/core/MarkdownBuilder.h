@@ -78,4 +78,8 @@ public:
     // Parses markdown and rebuilds target as a rendered document.
     // Returns false only when the parser itself fails.
     static bool build(QTextDocument *target, const QString &markdown, const RenderStyle &style);
+
+    // GitHub-style heading anchor: lowercased, spaces to dashes, punctuation
+    // dropped. Used to resolve in-document links like "#getting-started".
+    static QString headingSlug(const QString &heading);
 };

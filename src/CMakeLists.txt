@@ -50,6 +50,7 @@ target_link_libraries(mmd_core
         Qt6::Svg
         KF6::SyntaxHighlighting
         md4c
+        mmd_warnings
 )
 add_executable(mmd
     main.cpp

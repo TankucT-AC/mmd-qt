@@ -32,6 +32,7 @@ private slots:
     void contentIsCappedByMaxWidth();
     void codeFramesAreFoundAfterRender();
     void copyButtonCopiesTheCode();
+    void anchorScrollsInsteadOfBlankTheView();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -232,6 +233,31 @@ void ViewTest::copyButtonCopiesTheCode()
 
     // A click elsewhere in the box must not copy.
     QVERIFY(!view.copyCodeAt(view.codeFrameRect(frame).topLeft() + QPoint(20, 20)));
+}
+
+void ViewTest::anchorScrollsInsteadOfBlankTheView()
+{
+    MarkdownView view;
+    view.resize(700, 300);
+    view.show();
+    view.setRenderInterval(0);
+
+    QString markdown = QStringLiteral("# Intro\n\n");
+    for (int i = 0; i < 80; ++i)
+        markdown += QStringLiteral("line %1\n\n").arg(i);
+    markdown += QStringLiteral("# Key features\n\nbody\n");
+    view.setMarkdown(markdown);
+    QTRY_VERIFY(view.document()->blockCount() > 80);
+
+    // A known anchor scrolls to the heading...
+    QVERIFY(view.scrollToAnchor(QStringLiteral("key-features")));
+    QVERIFY(view.verticalScrollBar()->value() > 0);
+
+    // ...and an unknown one does nothing at all (never blanks the view).
+    const int value = view.verticalScrollBar()->value();
+    QVERIFY(!view.scrollToAnchor(QStringLiteral("does-not-exist")));
+    QCOMPARE(view.verticalScrollBar()->value(), value);
+    QVERIFY(!view.document()->isEmpty());
 }
 
 QTEST_MAIN(ViewTest)

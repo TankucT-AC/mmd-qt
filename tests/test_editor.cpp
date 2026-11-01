@@ -95,7 +95,7 @@ void EditorTest::inlineCodeSpanHighlighted()
     Q_UNUSED(highlighter);
 
     const QTextBlock block = document->firstBlock();
-    const QTextCharFormat format = formatAt(block, block.text().indexOf(QStringLiteral("code")));
+    const QTextCharFormat format = formatAt(block, int(block.text().indexOf(QStringLiteral("code"))));
     QCOMPARE(format.background().color(), theme.markdown.codeBackground);
     QCOMPARE(format.foreground().color(), theme.markdown.codeText);
 }
@@ -109,7 +109,7 @@ void EditorTest::linkColored()
     Q_UNUSED(highlighter);
 
     const QTextBlock block = document->firstBlock();
-    const QTextCharFormat format = formatAt(block, block.text().indexOf(QStringLiteral("docs")));
+    const QTextCharFormat format = formatAt(block, int(block.text().indexOf(QStringLiteral("docs"))));
     QCOMPARE(format.foreground().color(), theme.markdown.link);
 }
 

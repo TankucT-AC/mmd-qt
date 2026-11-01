@@ -27,6 +27,25 @@ endif()
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Test Svg)
 find_package(KF6SyntaxHighlighting 6.0 REQUIRED)
 
+# Strict warnings for this project's own translation units. They are attached as
+# an INTERFACE target and linked PUBLIC, so tests and the executable inherit
+# them; Qt/KF6 headers stay system headers and are not affected.
+# -ansi is intentionally omitted: it selects C++98 and would break C++20.
+add_library(mmd_warnings INTERFACE)
+target_compile_options(mmd_warnings INTERFACE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:
+        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wpointer-arith
+        -Wcast-qual -Wcast-align -Wwrite-strings -Wfloat-equal
+        -Woverloaded-virtual -Wundef -Wuninitialized -Wredundant-decls
+        -Wnon-virtual-dtor -Wctor-dtor-privacy -Wzero-as-null-pointer-constant
+        -Wsign-promo -Wold-style-cast
+    >
+    $<$<CXX_COMPILER_ID:GNU>:
+        -fno-common -Wuseless-cast -Wsuggest-override -Wlogical-op
+        -Wduplicated-cond -Wduplicated-branches -Wnoexcept
+    >
+)
+
 add_subdirectory(third_party)
 add_subdirectory(src)
 

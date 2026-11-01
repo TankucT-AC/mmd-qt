@@ -40,7 +40,7 @@ void MarkdownHighlighter::setFenceLineFormat(const QString &text)
     QTextCharFormat format;
     format.setForeground(m_theme.markdown.codeText);
     format.setBackground(m_theme.markdown.codeBackground);
-    setFormat(0, text.size(), format);
+    setFormat(0, int(text.size()), format);
 }
 
 void MarkdownHighlighter::applyLineRules(const QString &text)
@@ -50,27 +50,27 @@ void MarkdownHighlighter::applyLineRules(const QString &text)
         return; // fence markers do not get other styling
     }
     if (m_heading.match(text).hasMatch()) {
-        setFormat(0, text.size(), makeFormat(m_theme.markdown.heading, QFont::Bold));
+        setFormat(0, int(text.size()), makeFormat(m_theme.markdown.heading, QFont::Bold));
         return;
     }
     if (m_horizontalRule.match(text).hasMatch()) {
-        setFormat(0, text.size(), makeFormat(m_theme.markdown.rule));
+        setFormat(0, int(text.size()), makeFormat(m_theme.markdown.rule));
         return;
     }
 
     const QRegularExpressionMatch quote = m_quoteMarker.match(text);
     if (quote.hasMatch())
-        setFormat(0, quote.capturedLength(), makeFormat(m_theme.markdown.quoteBar, QFont::Bold));
+        setFormat(0, int(quote.capturedLength()), makeFormat(m_theme.markdown.quoteBar, QFont::Bold));
 
     const QRegularExpressionMatch task = m_taskMarker.match(text);
     if (task.hasMatch()) {
         const QString mark = task.captured(3);
         const QColor color = mark.compare(QStringLiteral("[x]"), Qt::CaseInsensitive) == 0 ? m_theme.markdown.taskDone : m_theme.markdown.taskOpen;
-        setFormat(task.capturedStart(3), task.capturedLength(3), makeFormat(color, QFont::Bold));
+        setFormat(int(task.capturedStart(3)), int(task.capturedLength(3)), makeFormat(color, QFont::Bold));
     } else {
         const QRegularExpressionMatch list = m_listMarker.match(text);
         if (list.hasMatch())
-            setFormat(0, list.capturedLength(), makeFormat(m_theme.markdown.weakText, QFont::Bold));
+            setFormat(0, int(list.capturedLength()), makeFormat(m_theme.markdown.weakText, QFont::Bold));
     }
 }
 
@@ -83,14 +83,14 @@ void MarkdownHighlighter::applySpanRules(const QString &text)
     QRegularExpressionMatchIterator it = m_inlineCode.globalMatch(text);
     while (it.hasNext()) {
         const QRegularExpressionMatch match = it.next();
-        setFormat(match.capturedStart(), match.capturedLength(), codeFormat);
+        setFormat(int(match.capturedStart()), int(match.capturedLength()), codeFormat);
     }
 
     it = m_bold.globalMatch(text);
     while (it.hasNext()) {
         const QRegularExpressionMatch match = it.next();
         QTextCharFormat format = makeFormat(m_theme.palette.color(QPalette::Text), QFont::Bold);
-        setFormat(match.capturedStart(), match.capturedLength(), format);
+        setFormat(int(match.capturedStart()), int(match.capturedLength()), format);
     }
 
     it = m_emphasis.globalMatch(text);
@@ -98,19 +98,19 @@ void MarkdownHighlighter::applySpanRules(const QString &text)
         const QRegularExpressionMatch match = it.next();
         QTextCharFormat format;
         format.setFontItalic(true);
-        setFormat(match.capturedStart(), match.capturedLength(), format);
+        setFormat(int(match.capturedStart()), int(match.capturedLength()), format);
     }
 
     it = m_image.globalMatch(text);
     while (it.hasNext()) {
         const QRegularExpressionMatch match = it.next();
-        setFormat(match.capturedStart(), match.capturedLength(), makeFormat(m_theme.markdown.taskOpen));
+        setFormat(int(match.capturedStart()), int(match.capturedLength()), makeFormat(m_theme.markdown.taskOpen));
     }
 
     it = m_link.globalMatch(text);
     while (it.hasNext()) {
         const QRegularExpressionMatch match = it.next();
-        setFormat(match.capturedStart(), match.capturedLength(), makeFormat(m_theme.markdown.link));
+        setFormat(int(match.capturedStart()), int(match.capturedLength()), makeFormat(m_theme.markdown.link));
     }
 }
 
