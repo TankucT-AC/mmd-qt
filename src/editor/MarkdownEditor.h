@@ -1,0 +1,50 @@
+// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "core/Theme.h"
+
+#include <QPlainTextEdit>
+
+class MarkdownHighlighter;
+
+/*
+ * Source pane of the two-pane view: a plain text editor with line numbers,
+ * current-line highlighting and markdown syntax highlighting. Editing is the
+ * input side of the live preview; the editor itself knows nothing about
+ * rendering markdown.
+ */
+class MarkdownEditor : public QPlainTextEdit
+{
+    Q_OBJECT
+
+public:
+    explicit MarkdownEditor(QWidget *parent = nullptr);
+
+    void setTheme(const ThemeDefinition &theme);
+
+    // Replaces the whole document and re-highlights. Programmatic text
+    // replacement needs an explicit rehighlight: the synchronous pass Qt runs
+    // during setPlainText writes to a layout that is discarded afterwards.
+    void setMarkdown(const QString &markdown);
+
+    int lineNumberAreaWidth() const;
+
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
+private slots:
+    void updateLineNumberAreaWidth();
+    void updateLineNumberArea(const QRect &rect, int dy);
+    void highlightCurrentLine();
+
+private:
+    class LineNumberArea;
+
+    void lineNumberAreaPaintEvent(QPaintEvent *event);
+
+    MarkdownHighlighter *m_highlighter = nullptr;
+    LineNumberArea *m_lineNumberArea = nullptr;
+    ThemeDefinition m_theme;
+};

@@ -3,6 +3,9 @@
 
 #include "app/MainWindow.h"
 
+#include "core/ThemeManager.h"
+#include "editor/MarkdownEditor.h"
+
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
@@ -13,7 +16,6 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QPlainTextEdit>
 #include <QSplitter>
 #include <QTextBrowser>
 
@@ -58,9 +60,8 @@ void MainWindow::buildUi()
 {
     m_splitter = new QSplitter(Qt::Horizontal, this);
 
-    // Placeholders; replaced by MarkdownEditor and MarkdownView as they land.
-    m_editor = new QPlainTextEdit(m_splitter);
-    m_editor->setPlaceholderText(tr("Markdown source"));
+    m_editor = new MarkdownEditor(m_splitter);
+    // Placeholder until MarkdownView lands; then this becomes the preview pane.
     m_viewer = new QTextBrowser(m_splitter);
 
     m_splitter->addWidget(m_editor);
@@ -121,6 +122,8 @@ void MainWindow::buildMenus()
 void MainWindow::applyTheme(const ThemeDefinition &theme)
 {
     QApplication::setPalette(theme.palette);
+    m_editor->setTheme(theme);
+    m_viewer->setPalette(theme.palette);
 }
 
 void MainWindow::loadThemeFromFile()

@@ -8,9 +8,9 @@
 #include <QMainWindow>
 
 class QAction;
-class QPlainTextEdit;
 class QSplitter;
 class QTextBrowser;
+class MarkdownEditor;
 
 class MainWindow : public QMainWindow
 {
@@ -32,7 +32,7 @@ private:
     void loadThemeFromFile();
 
     QSplitter *m_splitter = nullptr;
-    QPlainTextEdit *m_editor = nullptr;
+    MarkdownEditor *m_editor = nullptr;
     QTextBrowser *m_viewer = nullptr;
     QAction *m_toggleEditor = nullptr;
     QAction *m_toggleViewer = nullptr;

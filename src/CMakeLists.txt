@@ -19,6 +19,10 @@ add_library(mmd_core STATIC
     core/ImageResolver.cpp
     core/MarkdownBuilder.h
     core/MarkdownBuilder.cpp
+    editor/MarkdownEditor.h
+    editor/MarkdownEditor.cpp
+    editor/MarkdownHighlighter.h
+    editor/MarkdownHighlighter.cpp
 )
 
 target_include_directories(mmd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

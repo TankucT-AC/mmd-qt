@@ -32,3 +32,11 @@ target_link_libraries(test_markdown PRIVATE mmd_core Qt6::Test)
 
 add_test(NAME test_markdown COMMAND test_markdown)
 set_tests_properties(test_markdown PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(test_editor
+    test_editor.cpp
+)
+target_link_libraries(test_editor PRIVATE mmd_core Qt6::Test)
+
+add_test(NAME test_editor COMMAND test_editor)
+set_tests_properties(test_editor PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
