@@ -7,6 +7,8 @@
 
 #include <QMovie>
 #include <QPainter>
+#include <QSet>
+#include <QTextBlock>
 #include <QTextDocument>
 
 GifObjectHandler::GifObjectHandler(QTextDocument *document, QObject *parent)
@@ -20,6 +22,45 @@ void GifObjectHandler::setMaximumWidth(int width)
     m_maximumWidth = width;
 }
 
+QPixmap GifObjectHandler::scaledFrame(const QString &path, const QSize &size)
+{
+    if (m_scaledSize.value(path) == size && m_scaled.contains(path))
+        return m_scaled.value(path);
+
+    const QPixmap frame = movieFor(path)->currentPixmap();
+    if (frame.isNull())
+        return QPixmap();
+
+    const QPixmap scaled = frame.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    m_scaled.insert(path, scaled);
+    m_scaledSize.insert(path, size);
+    return scaled;
+}
+
+void GifObjectHandler::syncToDocument()
+{
+    QSet<QString> present;
+    for (QTextBlock block = m_document->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (format.objectType() == MarkdownBuilder::gifObjectType)
+                present.insert(format.property(MarkdownBuilder::gifPathKey).toString());
+        }
+    }
+
+    const QList<QString> known = m_movies.keys();
+    for (const QString &path : known) {
+        if (present.contains(path))
+            continue;
+        QMovie *movie = m_movies.take(path);
+        movie->stop();
+        movie->deleteLater();
+        m_positions.remove(path);
+        m_scaled.remove(path);
+        m_scaledSize.remove(path);
+    }
+}
+
 QMovie *GifObjectHandler::movieFor(const QString &path)
 {
     const auto it = m_movies.constFind(path);
@@ -30,6 +71,8 @@ QMovie *GifObjectHandler::movieFor(const QString &path)
     m_movies.insert(path, movie);
 
     connect(movie, &QMovie::frameChanged, this, [this, path] {
+        m_scaled.remove(path); // a new frame invalidates the scaled cache
+        m_scaledSize.remove(path);
         const int position = m_positions.value(path, -1);
         if (position >= 0)
             m_document->markContentsDirty(position, 1);
@@ -64,10 +107,10 @@ void GifObjectHandler::drawObject(QPainter *painter, const QRectF &rect, QTextDo
 
     QMovie *movie = movieFor(path);
     m_positions.insert(path, posInDocument);
-    const QPixmap frame = movie->currentPixmap();
+    const QPixmap frame = scaledFrame(path, rect.size().toSize());
     if (frame.isNull())
         return;
-    painter->drawPixmap(rect.toRect(), frame.scaled(rect.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    painter->drawPixmap(rect.toRect(), frame);
 }
 
 bool GifObjectHandler::hasRunningAnimations() const

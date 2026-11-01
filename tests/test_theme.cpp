@@ -7,6 +7,7 @@
 #include "core/ThemeManager.h"
 
 #include <QGuiApplication>
+#include <QJsonObject>
 #include <QStyleHints>
 
 class ThemeTest : public QObject
@@ -22,6 +23,7 @@ private slots:
     void modeChangeEmitsThemeChanged();
     void customThemeRoundTripsThroughJson();
     void customModeUsesProvidedDefinition();
+    void malformedColorIsRejected();
 
 private:
     static bool setPlatformScheme(Qt::ColorScheme scheme);
@@ -137,6 +139,16 @@ void ThemeTest::customModeUsesProvidedDefinition()
     manager.setMode(ThemeManager::Mode::Custom);
 
     QCOMPARE(manager.currentTheme().name, QStringLiteral("my-theme"));
+}
+
+void ThemeTest::malformedColorIsRejected()
+{
+    QJsonObject json = ThemeDefinition::light().toJson();
+    QJsonObject markdown = json.value(QStringLiteral("markdown")).toObject();
+    markdown.insert(QStringLiteral("link"), QStringLiteral("not-a-color"));
+    json.insert(QStringLiteral("markdown"), markdown);
+
+    QVERIFY(!ThemeDefinition::fromJson(json).has_value());
 }
 
 QTEST_MAIN(ThemeTest)

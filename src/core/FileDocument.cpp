@@ -26,7 +26,7 @@ bool FileDocument::load(const QString &path, QString *error)
     m_content = QString::fromUtf8(file.readAll());
     m_path = QFileInfo(path).absoluteFilePath();
     m_directory = QFileInfo(m_path).absolutePath();
-    watchPath(m_path);
+    armWatch();
     return true;
 }
 
@@ -51,7 +51,7 @@ bool FileDocument::save(const QString &path, const QString &content, QString *er
     m_content = content;
     m_path = QFileInfo(path).absoluteFilePath();
     m_directory = QFileInfo(m_path).absolutePath();
-    watchPath(m_path);
+    armWatch();
     m_saving = false;
     return true;
 }
@@ -79,9 +79,8 @@ bool FileDocument::exists() const
     return !m_path.isEmpty() && QFileInfo::exists(m_path);
 }
 
-void FileDocument::watchPath(const QString &path)
+void FileDocument::armWatch()
 {
-    Q_UNUSED(path);
     unwatchAll();
     if (!m_path.isEmpty() && QFileInfo::exists(m_path))
         m_watcher.addPath(m_path);
@@ -99,15 +98,13 @@ void FileDocument::unwatchAll()
         m_watcher.removePaths(directories);
 }
 
-void FileDocument::handleFileChanged(const QString &path)
+void FileDocument::handleFileChanged()
 {
-    Q_UNUSED(path);
-    handleDirectoryChanged(m_directory);
+    handleDirectoryChanged();
 }
 
-void FileDocument::handleDirectoryChanged(const QString &path)
+void FileDocument::handleDirectoryChanged()
 {
-    Q_UNUSED(path);
     QFile file(m_path);
     if (!file.open(QIODevice::ReadOnly)) {
         // The file is gone (deleted or being atomically replaced).

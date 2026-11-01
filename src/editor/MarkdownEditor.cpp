@@ -9,6 +9,8 @@
 #include <QPainter>
 #include <QTextBlock>
 
+#include <algorithm>
+
 namespace
 {
 
@@ -69,7 +71,7 @@ void MarkdownEditor::setMarkdown(const QString &markdown)
 int MarkdownEditor::lineNumberAreaWidth() const
 {
     int digits = 1;
-    for (int maximum = qMax(1, blockCount()); maximum >= 10; maximum /= 10)
+    for (int maximum = (std::max)(1, blockCount()); maximum >= 10; maximum /= 10)
         ++digits;
     return kLineNumberPadding + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
 }

@@ -41,11 +41,11 @@ signals:
     void externallyChanged();
 
 private:
-    void watchPath(const QString &path);
+    void armWatch();
     void unwatchAll();
     void rearmWatch();
-    void handleFileChanged(const QString &path);
-    void handleDirectoryChanged(const QString &path);
+    void handleFileChanged();
+    void handleDirectoryChanged();
 
     QFileSystemWatcher m_watcher;
     QString m_path;

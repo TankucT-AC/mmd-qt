@@ -30,7 +30,7 @@ protected:
     void highlightBlock(const QString &text) override;
 
 private:
-    enum BlockState {
+    enum BlockState : int {
         StateNormal = 0,
         StateInFence = 1,
     };

@@ -10,6 +10,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QTemporaryDir>
+#include <QTextCursor>
 #include <QTextDocument>
 
 // A two-frame 4x4 GIF (red, then blue), generated once and embedded so the
@@ -26,6 +27,7 @@ private slots:
     void handlerMeasuresIntrinsicSize();
     void handlerCapsWidthToMaximum();
     void animationAdvancesFrames();
+    void staleAnimationsAreDropped();
 
 private:
     QTextCharFormat objectFormat(const QString &path) const;
@@ -110,6 +112,31 @@ void GifTest::animationAdvancesFrames()
         second = render(&handler, &document, format, size);
     }
     QVERIFY(first != second);
+}
+
+void GifTest::staleAnimationsAreDropped()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("anim.gif"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QByteArray::fromBase64(kAnimatedGifBase64));
+    file.close();
+
+    QTextDocument document;
+    GifObjectHandler handler(&document);
+    const QTextCharFormat format = objectFormat(path);
+
+    QTextCursor cursor(&document);
+    cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+    QVERIFY(handler.intrinsicSize(&document, 0, format).isValid());
+    QVERIFY(handler.hasRunningAnimations());
+
+    // The image disappears from the document: the movie must be dropped.
+    document.clear();
+    handler.syncToDocument();
+    QVERIFY(!handler.hasRunningAnimations());
 }
 
 QTEST_MAIN(GifTest)

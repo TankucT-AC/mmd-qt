@@ -28,6 +28,10 @@ public:
 
     void setMaximumWidth(int width);
 
+    // Stops and drops the movies for images no longer referenced by the
+    // document. Call after a rebuild so a removed GIF does not animate forever.
+    void syncToDocument();
+
     QSizeF intrinsicSize(QTextDocument *document, int posInDocument, const QTextFormat &format) override;
     void drawObject(QPainter *painter, const QRectF &rect, QTextDocument *document, int posInDocument, const QTextFormat &format) override;
 
@@ -36,9 +40,12 @@ public:
 
 private:
     QMovie *movieFor(const QString &path);
+    QPixmap scaledFrame(const QString &path, const QSize &size);
 
     QTextDocument *m_document;
     int m_maximumWidth = 760;
     QHash<QString, QMovie *> m_movies;
     QHash<QString, int> m_positions;
+    QHash<QString, QPixmap> m_scaled;
+    QHash<QString, QSize> m_scaledSize;
 };

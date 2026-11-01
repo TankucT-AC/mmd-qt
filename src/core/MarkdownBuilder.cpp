@@ -27,6 +27,8 @@ extern "C" {
 #include <optional>
 #include <vector>
 
+#include <algorithm>
+
 namespace
 {
 
@@ -80,7 +82,11 @@ public:
         : m_document(document)
         , m_style(style)
         , m_cursor(document)
+        , m_bodyFont(style.fonts.bodyFont())
+        , m_codeFont(style.fonts.codeFont())
     {
+        for (int level = 1; level <= 6; ++level)
+            m_headingFonts[level] = style.fonts.headingFont(level);
     }
 
     bool run(const QString &markdown);
@@ -152,6 +158,12 @@ private:
     RenderStyle m_style;
     QTextCursor m_cursor;
 
+    // Resolved once: building a QFont per block/span would repeat
+    // QFontDatabase lookups for the system font set.
+    QFont m_bodyFont;
+    QFont m_codeFont;
+    QFont m_headingFonts[7];
+
     bool m_firstBlock = true;
     PendingBlock m_pending;
     QTextCharFormat m_blockCharFormat;
@@ -173,7 +185,7 @@ private:
     bool m_verbatimPendingNewline = false;
     QTextBlockFormat m_verbatimBlockFormat;
 
-    std::optional<TableState> m_table;
+    std::optional<TableState> m_table = std::nullopt;
     QStack<SavedState> m_cellStack;
 };
 
@@ -295,7 +307,7 @@ QTextCharFormat Builder::composeCharFormat() const
 QTextCharFormat Builder::bodyCharFormat() const
 {
     QTextCharFormat format;
-    format.setFont(m_style.fonts.bodyFont());
+    format.setFont(m_bodyFont);
     format.setForeground(m_style.theme.palette.color(QPalette::Text));
     return format;
 }
@@ -303,7 +315,7 @@ QTextCharFormat Builder::bodyCharFormat() const
 QTextCharFormat Builder::codeCharFormat() const
 {
     QTextCharFormat format;
-    format.setFont(m_style.fonts.codeFont());
+    format.setFont(m_codeFont);
     format.setForeground(m_style.theme.markdown.codeText);
     return format;
 }
@@ -311,7 +323,7 @@ QTextCharFormat Builder::codeCharFormat() const
 QTextCharFormat Builder::headingCharFormat(int level) const
 {
     QTextCharFormat format;
-    format.setFont(m_style.fonts.headingFont(level));
+    format.setFont(m_headingFonts[std::clamp(level, 1, 6)]);
     format.setForeground(level >= 6 ? m_style.theme.markdown.weakText : m_style.theme.markdown.heading);
     return format;
 }
@@ -319,7 +331,7 @@ QTextCharFormat Builder::headingCharFormat(int level) const
 QTextCharFormat Builder::ruleCharFormat() const
 {
     QTextCharFormat format;
-    format.setFont(m_style.fonts.bodyFont());
+    format.setFont(m_bodyFont);
     format.setForeground(m_style.theme.markdown.rule);
     return format;
 }
@@ -768,7 +780,7 @@ void Builder::emitTable()
 
     QTextTable *target = m_cursor.insertTable(int(table.rows.size()), int(table.columns), format);
     for (int row = 0; row < int(table.rows.size()); ++row) {
-        const int columns = qMin(int(table.columns), int(table.rows[row].size()));
+        const int columns = (std::min)(int(table.columns), int(table.rows[row].size()));
         for (int column = 0; column < columns; ++column) {
             const Cell &cell = table.rows[row][column];
             QTextCursor cellCursor = target->cellAt(row, column).firstCursorPosition();

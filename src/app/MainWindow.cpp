@@ -23,6 +23,8 @@
 #include <QMessageBox>
 #include <QSplitter>
 
+#include <array>
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_file(new FileDocument(this))
@@ -97,7 +99,7 @@ void MainWindow::buildUi()
         m_viewer->setMarkdown(m_editor->toPlainText());
     });
     connect(m_splitter, &QSplitter::splitterMoved, this, [this] {
-        m_viewer->renderNow();
+        m_viewer->scheduleRerender();
     });
     m_scrollSync = new ScrollSync(m_editor, m_viewer, this);
 
@@ -130,24 +132,28 @@ void MainWindow::buildMenus()
 
     QMenu *themeMenu = viewMenu->addMenu(tr("&Theme"));
     auto *group = new QActionGroup(this);
-    const QVector<QPair<QString, ThemeManager::Mode>> modes = {
+    struct ThemeChoice {
+        QString label;
+        ThemeManager::Mode mode;
+    };
+    const std::array<ThemeChoice, 4> modes = {{
         {tr("Follow &System"), ThemeManager::Mode::System},
         {tr("&Light"), ThemeManager::Mode::Light},
         {tr("&Dark"), ThemeManager::Mode::Dark},
         {tr("&Custom"), ThemeManager::Mode::Custom},
-    };
-    for (const auto &entry : modes) {
-        QAction *action = group->addAction(entry.first);
+    }};
+    for (const ThemeChoice &entry : modes) {
+        QAction *action = group->addAction(entry.label);
         action->setCheckable(true);
-        if (entry.second == m_themes->mode())
+        if (entry.mode == m_themes->mode())
             action->setChecked(true);
-        const ThemeManager::Mode mode = entry.second;
+        const ThemeManager::Mode mode = entry.mode;
         connect(action, &QAction::toggled, this, [this, mode](bool checked) {
             if (checked)
                 m_themes->setMode(mode);
         });
         themeMenu->addAction(action);
-        if (entry.second == ThemeManager::Mode::Custom) {
+        if (entry.mode == ThemeManager::Mode::Custom) {
             m_customThemeAction = action;
             action->setEnabled(false); // enabled once a custom theme file is loaded
         }

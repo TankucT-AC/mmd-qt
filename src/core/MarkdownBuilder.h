@@ -47,7 +47,7 @@ public:
     };
 
     // QTextFormat property keys used on block formats and the GIF object.
-    enum PropertyKey {
+    enum PropertyKey : int {
         kindKey = QTextFormat::UserProperty + 1,
         headingLevelKey,
         languageKey,

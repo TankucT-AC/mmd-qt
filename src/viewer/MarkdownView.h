@@ -7,6 +7,8 @@
 
 #include <QTextBrowser>
 
+#include <memory>
+
 class QTimer;
 class GifObjectHandler;
 class CodeHighlighter;
@@ -30,6 +32,7 @@ class MarkdownView : public QTextBrowser
 
 public:
     explicit MarkdownView(QWidget *parent = nullptr);
+    ~MarkdownView() override;
 
     void setRenderStyle(const RenderStyle &style);
     const RenderStyle &renderStyle() const;
@@ -41,6 +44,10 @@ public:
 
     // Renders immediately, bypassing the debounce.
     void renderNow();
+
+    // Re-renders the current source through the debounce, so a burst of
+    // layout changes (e.g. dragging the splitter) coalesces into one render.
+    void scheduleRerender();
 
     int renderInterval() const;
     void setRenderInterval(int milliseconds);
@@ -55,5 +62,5 @@ private:
     QString m_source;
     QTimer *m_renderTimer = nullptr;
     GifObjectHandler *m_gifHandler = nullptr;
-    CodeHighlighter *m_codeHighlighter = nullptr;
+    std::unique_ptr<CodeHighlighter> m_codeHighlighter;
 };

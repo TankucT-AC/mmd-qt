@@ -4,6 +4,7 @@
 #include "core/Theme.h"
 
 #include <QJsonArray>
+#include <QVector>
 
 namespace
 {
@@ -183,5 +184,29 @@ std::optional<ThemeDefinition> ThemeDefinition::fromJson(const QJsonObject &obje
     theme.markdown.tableHeaderBackground = color(markdownObject, QStringLiteral("tableHeaderBackground"));
     theme.markdown.taskOpen = color(markdownObject, QStringLiteral("taskOpen"));
     theme.markdown.taskDone = color(markdownObject, QStringLiteral("taskDone"));
+
+    // Reject malformed colour strings rather than silently applying an
+    // invalid-builtin theme.
+    const QVector<QColor> required = {
+        theme.palette.color(QPalette::Window),
+        theme.palette.color(QPalette::Text),
+        theme.palette.color(QPalette::Highlight),
+        theme.markdown.heading,
+        theme.markdown.weakText,
+        theme.markdown.link,
+        theme.markdown.codeBackground,
+        theme.markdown.codeText,
+        theme.markdown.quoteBackground,
+        theme.markdown.quoteBar,
+        theme.markdown.rule,
+        theme.markdown.tableBorder,
+        theme.markdown.tableHeaderBackground,
+        theme.markdown.taskOpen,
+        theme.markdown.taskDone,
+    };
+    for (const QColor &value : required) {
+        if (!value.isValid())
+            return std::nullopt;
+    }
     return theme;
 }
