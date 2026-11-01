@@ -38,6 +38,7 @@ private slots:
     void calloutIsRendered();
     void headingSlugsMatchGithubStyle();
     void htmlImageHonoursWidthAttribute();
+    void htmlImageInsideCenteredDivIsCentered();
     void readmeRendersWithoutLiteralHtml();
     void boldEmphasisInParagraph();
     void inlineCodeSpan();
@@ -621,6 +622,31 @@ void MarkdownTest::headingSlugsMatchGithubStyle()
     QCOMPARE(MarkdownBuilder::headingSlug(QStringLiteral("Getting started")), QStringLiteral("getting-started"));
     QCOMPARE(MarkdownBuilder::headingSlug(QStringLiteral("Licensing rules (mandatory)")), QStringLiteral("licensing-rules-mandatory"));
     QCOMPARE(MarkdownBuilder::headingSlug(QStringLiteral("C++20 & Qt")), QStringLiteral("c20--qt"));
+}
+
+void MarkdownTest::htmlImageInsideCenteredDivIsCentered()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(40, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    // The document starts with <div>, so the very first block must be centred
+    // too (the image used to land in an unformatted first block).
+    QTextDocument document;
+    render(&document, QStringLiteral("<div align=\"center\">\n\n<img src=\"pic.png\" width=\"40\">\n\n</div>\n"), dir.path());
+
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (!it.fragment().charFormat().isImageFormat())
+                continue;
+            QCOMPARE(block.blockFormat().alignment(), Qt::AlignHCenter);
+            found = true;
+        }
+    }
+    QVERIFY(found);
 }
 
 void MarkdownTest::htmlImageHonoursWidthAttribute()

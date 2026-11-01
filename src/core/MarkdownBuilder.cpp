@@ -221,6 +221,7 @@ private:
 
     QTextBlockFormat paragraphFormat() const;
     QTextBlockFormat centeredParagraphFormat() const;
+    void startHtmlBlock();
     QTextBlockFormat headingFormat(int level) const;
     QTextBlockFormat codeFormat(const QString &language) const;
     QTextFrameFormat codeFrameFormat(const QColor &background) const;
@@ -462,6 +463,20 @@ QTextBlockFormat Builder::centeredParagraphFormat() const
     if (m_htmlCenterDepth > 0)
         format.setAlignment(Qt::AlignHCenter);
     return format;
+}
+
+void Builder::startHtmlBlock()
+{
+    // Start a block for raw HTML content (an image, a fallback line). Unlike
+    // startBlock() there is no pending format, so the first block is formatted
+    // in place and later ones are inserted.
+    if (m_firstBlock) {
+        m_cursor.setBlockFormat(centeredParagraphFormat());
+        m_cursor.setBlockCharFormat(bodyCharFormat());
+    } else {
+        m_cursor.insertBlock(centeredParagraphFormat(), bodyCharFormat());
+    }
+    m_firstBlock = false;
 }
 
 QTextBlockFormat Builder::headingFormat(int level) const
@@ -1352,9 +1367,7 @@ void Builder::renderHtmlBlock(const QString &html)
 
         if ((token.kind == HtmlToken::StartTag || token.kind == HtmlToken::SelfClosingTag) && token.name == QLatin1String("img")) {
             handled = true;
-            if (!m_firstBlock)
-                m_cursor.insertBlock(centeredParagraphFormat(), bodyCharFormat());
-            m_firstBlock = false;
+            startHtmlBlock();
             insertImageElement(htmlAttribute(token, QStringLiteral("src")),
                                htmlAttribute(token, QStringLiteral("alt")),
                                htmlDimension(htmlAttribute(token, QStringLiteral("width"))));
@@ -1391,9 +1404,7 @@ void Builder::renderHtmlBlock(const QString &html)
     if (!handled) {
         const QString raw = html.trimmed();
         if (!raw.isEmpty()) {
-            if (!m_firstBlock)
-                m_cursor.insertBlock(centeredParagraphFormat(), bodyCharFormat());
-            m_firstBlock = false;
+            startHtmlBlock();
             QTextCharFormat format = codeCharFormat();
             format.setForeground(m_style.theme.markdown.weakText);
             m_cursor.insertText(raw, format);
