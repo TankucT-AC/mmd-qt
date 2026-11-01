@@ -16,3 +16,11 @@ target_link_libraries(test_theme PRIVATE mmd_core Qt6::Test)
 
 add_test(NAME test_theme COMMAND test_theme)
 set_tests_properties(test_theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(test_fonts
+    test_fonts.cpp
+)
+target_link_libraries(test_fonts PRIVATE mmd_core Qt6::Test)
+
+add_test(NAME test_fonts COMMAND test_fonts)
+set_tests_properties(test_fonts PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

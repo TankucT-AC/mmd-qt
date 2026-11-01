@@ -6,12 +6,15 @@ qt_standard_project_setup()
 # Internal static library: everything except main(). Tests link against it,
 # so one binary under test exercises the real production code.
 add_library(mmd_core STATIC
+    ../third_party/fonts/fonts.qrc
     app/MainWindow.h
     app/MainWindow.cpp
     core/Theme.h
     core/Theme.cpp
     core/ThemeManager.h
     core/ThemeManager.cpp
+    core/FontManager.h
+    core/FontManager.cpp
 )
 
 target_include_directories(mmd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

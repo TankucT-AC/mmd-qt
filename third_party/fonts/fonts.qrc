@@ -1,0 +1,13 @@
+<RCC>
+    <qresource prefix="/mmd/fonts">
+        <file alias="Inter-Regular.ttf">inter/Inter-Regular.ttf</file>
+        <file alias="Inter-Italic.ttf">inter/Inter-Italic.ttf</file>
+        <file alias="Inter-Medium.ttf">inter/Inter-Medium.ttf</file>
+        <file alias="Inter-SemiBold.ttf">inter/Inter-SemiBold.ttf</file>
+        <file alias="Inter-Bold.ttf">inter/Inter-Bold.ttf</file>
+        <file alias="JetBrainsMono-Regular.ttf">jetbrains-mono/JetBrainsMono-Regular.ttf</file>
+        <file alias="JetBrainsMono-Italic.ttf">jetbrains-mono/JetBrainsMono-Italic.ttf</file>
+        <file alias="JetBrainsMono-Bold.ttf">jetbrains-mono/JetBrainsMono-Bold.ttf</file>
+        <file alias="JetBrainsMono-BoldItalic.ttf">jetbrains-mono/JetBrainsMono-BoldItalic.ttf</file>
+    </qresource>
+</RCC>
