@@ -128,17 +128,14 @@ replaced.
 The design is deliberately small: one internal static library (`mmd_core`) and
 one executable, with dependencies pointing strictly one way.
 
-```mermaid
-flowchart TD
-    app["<b>app/</b><br/>MainWindow · ScrollSync"]
-    editor["<b>editor/</b><br/>MarkdownEditor · MarkdownHighlighter"]
-    viewer["<b>viewer/</b><br/>MarkdownView · CodeHighlighter<br/>GifObjectHandler · CheckboxObjectHandler"]
-    core["<b>core/</b><br/>MarkdownBuilder · Theme · ThemeManager · FontManager<br/>FileDocument · ImageResolver · SystemThemeProvider"]
+```text
+app/  ──▶  editor/  ──▶  core/        (MarkdownEditor, MarkdownHighlighter)
+      └──▶  viewer/  ──▶  core/        (MarkdownView, CodeHighlighter,
+                                       GifObjectHandler, CheckboxObjectHandler,
+                                       ChipObjectHandler)
 
-    app --> editor
-    app --> viewer
-    editor --> core
-    viewer --> core
+core/  MarkdownBuilder · Theme · ThemeManager · FontManager
+       FileDocument · ImageResolver · SystemThemeProvider · HtmlFragment
 ```
 
 - **`core`** includes nothing from the layers above it, so the renderer
