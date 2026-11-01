@@ -157,7 +157,7 @@ Autolink: https://github.com/mity/md4c
 
 Reference link: [CommonMark spec][spec].
 
-Relative link: [the styleguide](../STYLEGUIDE.md) and [contributing](../CONTRIBUTING.md).
+Relative link: [the styleguide](STYLEGUIDE.md) and [contributing](CONTRIBUTING.md).
 
 [spec]: https://spec.commonmark.org/
 
