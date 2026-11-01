@@ -13,6 +13,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextDocumentFragment>
+#include <QTextFrame>
 #include <QTextList>
 #include <QTextTable>
 #include <QTextTableCell>
@@ -139,6 +140,9 @@ private:
     void startBlock();
     void insertImage(const MD_SPAN_IMG_DETAIL *detail);
     void insertVerbatim(const QString &content);
+    void startVerbatimFrame(const QColor &background, const QString &language);
+    void endVerbatimFrame();
+    void removeFrameSpacers();
     void emitTable();
     QString linkFor(const QString &href) const;
 
@@ -151,6 +155,7 @@ private:
     QTextBlockFormat paragraphFormat() const;
     QTextBlockFormat headingFormat(int level) const;
     QTextBlockFormat codeFormat(const QString &language) const;
+    QTextFrameFormat codeFrameFormat(const QColor &background) const;
     QTextBlockFormat ruleFormat() const;
     QTextBlockFormat quoteWrap(QTextBlockFormat format) const;
 
@@ -184,7 +189,8 @@ private:
     bool m_inVerbatimBlock = false;
     bool m_verbatimPendingNewline = false;
     QTextBlockFormat m_verbatimBlockFormat;
-    QTextBlockFormat m_verbatimContinuationFormat;
+    QTextFrame *m_verbatimFrame = nullptr;
+    QTextCursor m_verbatimCursor;
 
     std::optional<TableState> m_table = std::nullopt;
     QStack<SavedState> m_cellStack;
@@ -233,7 +239,9 @@ bool Builder::run(const QString &markdown)
     m_firstBlock = true;
     m_pending = PendingBlock{};
 
-    return md_parse(utf8.constData(), MD_SIZE(utf8.size()), &parser, this) == 0;
+    const bool ok = md_parse(utf8.constData(), MD_SIZE(utf8.size()), &parser, this) == 0;
+    removeFrameSpacers();
+    return ok;
 }
 
 void Builder::setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList)
@@ -377,18 +385,26 @@ QTextBlockFormat Builder::headingFormat(int level) const
 
 QTextBlockFormat Builder::codeFormat(const QString &language) const
 {
+    // The shaded box is a QTextFrame wrapping the whole fenced region, so the
+    // lines themselves carry no background, padding or outer spacing.
     QTextBlockFormat format;
-    format.setBackground(m_style.theme.markdown.codeBackground);
-    // No per-line vertical spacing: consecutive code lines must form one
-    // continuous block. Outer spacing is added on the first and last line only.
     format.setTopMargin(0);
     format.setBottomMargin(0);
     format.setLeftMargin(0);
     format.setRightMargin(0);
-    // Horizontal padding as a text indent keeps the background full-width.
-    format.setTextIndent(10);
     format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Code));
     format.setProperty(MarkdownBuilder::languageKey, language);
+    return format;
+}
+
+QTextFrameFormat Builder::codeFrameFormat(const QColor &background) const
+{
+    QTextFrameFormat format;
+    format.setBackground(background);
+    format.setBorder(0);
+    format.setPadding(8);
+    format.setTopMargin(8);
+    format.setBottomMargin(8);
     return format;
 }
 
@@ -463,25 +479,12 @@ int Builder::enterBlock(MD_BLOCKTYPE type, void *detail)
     }
     case MD_BLOCK_CODE: {
         const auto *code = static_cast<const MD_BLOCK_CODE_DETAIL *>(detail);
-        m_inVerbatimBlock = true;
-        m_verbatimPendingNewline = false;
-        m_verbatimBlockFormat = quoteWrap(codeFormat(decodeAttribute(code->lang)));
-        m_verbatimBlockFormat.setTopMargin(m_verbatimBlockFormat.topMargin() + 8);
-        m_verbatimContinuationFormat = quoteWrap(codeFormat(decodeAttribute(code->lang)));
-        setPendingBlock(m_verbatimBlockFormat, codeCharFormat(), false);
+        startVerbatimFrame(m_style.theme.markdown.codeBackground, decodeAttribute(code->lang));
         break;
     }
-    case MD_BLOCK_HTML: {
-        QTextBlockFormat format = codeFormat(QString());
-        format.setBackground(m_style.theme.markdown.quoteBackground);
-        m_inVerbatimBlock = true;
-        m_verbatimPendingNewline = false;
-        m_verbatimBlockFormat = quoteWrap(format);
-        m_verbatimBlockFormat.setTopMargin(m_verbatimBlockFormat.topMargin() + 8);
-        m_verbatimContinuationFormat = quoteWrap(format);
-        setPendingBlock(m_verbatimBlockFormat, codeCharFormat(), false);
+    case MD_BLOCK_HTML:
+        startVerbatimFrame(m_style.theme.markdown.quoteBackground, QString());
         break;
-    }
     case MD_BLOCK_P:
         setPendingBlock(quoteWrap(paragraphFormat()), bodyCharFormat(), m_inListItem && !m_listItemFirstBlockDone);
         break;
@@ -578,15 +581,7 @@ int Builder::leaveBlock(MD_BLOCKTYPE type, void *detail)
         break;
     case MD_BLOCK_CODE:
     case MD_BLOCK_HTML:
-        startBlock();
-        // Close the block: give the last code line a bottom margin so the
-        // shaded region is separated from the following paragraph.
-        if (m_cursor.block().isValid()) {
-            QTextBlockFormat closing = m_cursor.blockFormat();
-            closing.setBottomMargin(8);
-            m_cursor.setBlockFormat(closing);
-        }
-        m_inVerbatimBlock = false;
+        endVerbatimFrame();
         break;
     case MD_BLOCK_HR:
         startBlock();
@@ -684,6 +679,72 @@ int Builder::leaveSpan(MD_SPANTYPE type, void *detail)
     return 0;
 }
 
+void Builder::startVerbatimFrame(const QColor &background, const QString &language)
+{
+    // Flush any pending block so the frame starts on a line of its own.
+    startBlock();
+
+    m_verbatimBlockFormat = codeFormat(language);
+    m_verbatimPendingNewline = false;
+    m_inVerbatimBlock = true;
+
+    // The frame box is the shaded region: it keeps long lines that wrap and
+    // blank lines inside one clean rectangle, with padding all around.
+    m_firstBlock = false;
+    m_verbatimFrame = m_cursor.insertFrame(codeFrameFormat(background));
+    m_verbatimCursor = m_verbatimFrame->firstCursorPosition();
+    m_verbatimCursor.setBlockFormat(m_verbatimBlockFormat);
+    m_verbatimCursor.setBlockCharFormat(codeCharFormat());
+    m_blockCharFormat = codeCharFormat();
+}
+
+void Builder::endVerbatimFrame()
+{
+    m_inVerbatimBlock = false;
+    if (!m_verbatimFrame)
+        return;
+    // Continue the document after the frame rather than inside it.
+    m_cursor = QTextCursor(m_document);
+    m_cursor.setPosition(m_verbatimFrame->lastPosition() + 1);
+    m_verbatimFrame = nullptr;
+}
+
+void Builder::removeFrameSpacers()
+{
+    // Inserting frames leaves empty, unformatted blocks immediately before or
+    // after them (and between two adjacent frames). They would render as extra
+    // blank lines, so drop them.
+    auto insideChildFrame = [this](const QTextBlock &block) {
+        return block.isValid() && m_document->frameAt(block.position()) != m_document->rootFrame();
+    };
+
+    QVector<int> positions;
+    for (QTextBlock block = m_document->firstBlock(); block.isValid(); block = block.next()) {
+        if (!block.text().isEmpty())
+            continue;
+        if (block.blockFormat().intProperty(MarkdownBuilder::kindKey) != 0)
+            continue;
+        if (block.blockFormat().background().style() != Qt::NoBrush)
+            continue;
+        if (insideChildFrame(block))
+            continue;
+        if (insideChildFrame(block.previous()) || insideChildFrame(block.next()))
+            positions.append(block.position());
+    }
+
+    for (int position : positions) {
+        QTextCursor cursor(m_document);
+        cursor.setPosition(position);
+        // Deleting cannot cross a frame boundary, so collapse the spacer to
+        // (almost) zero height instead of removing it.
+        QTextBlockFormat format = cursor.blockFormat();
+        format.setTopMargin(0);
+        format.setBottomMargin(0);
+        format.setLineHeight(0, QTextBlockFormat::FixedHeight);
+        cursor.setBlockFormat(format);
+    }
+}
+
 void Builder::insertVerbatim(const QString &content)
 {
     int from = 0;
@@ -692,11 +753,11 @@ void Builder::insertVerbatim(const QString &content)
         const QString line = newline < 0 ? content.mid(from) : content.mid(from, newline - from);
 
         if (m_verbatimPendingNewline) {
-            m_cursor.insertBlock(m_verbatimContinuationFormat, m_blockCharFormat);
+            m_verbatimCursor.insertBlock(m_verbatimBlockFormat, m_blockCharFormat);
             m_verbatimPendingNewline = false;
         }
         if (!line.isEmpty())
-            m_cursor.insertText(line, composeCharFormat());
+            m_verbatimCursor.insertText(line, composeCharFormat());
         if (newline < 0)
             break;
         m_verbatimPendingNewline = true;
@@ -729,13 +790,15 @@ int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
         break;
     }
 
-    startBlock();
-
     if (m_inVerbatimBlock) {
         insertVerbatim(decoded);
-    } else if (!decoded.isEmpty()) {
-        m_cursor.insertText(decoded, composeCharFormat());
+        return 0;
     }
+
+    startBlock();
+
+    if (!decoded.isEmpty())
+        m_cursor.insertText(decoded, composeCharFormat());
     return 0;
 }
 

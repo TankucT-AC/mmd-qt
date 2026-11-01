@@ -29,6 +29,7 @@ private slots:
     void headingLevelAndScale();
     void headingSixUsesWeakColor();
     void codeBlockIsOneContinuousRegion();
+    void wrappedCodeLineStaysInsideTheBox();
     void boldEmphasisInParagraph();
     void inlineCodeSpan();
     void fencedCodeBlockCarriesLanguage();
@@ -50,7 +51,37 @@ private slots:
 private:
     void render(QTextDocument *document, const QString &markdown, const QString &baseDir = QString());
     static QTextCharFormat formatAt(const QTextBlock &block, int position);
+    static QImage renderImage(QTextDocument *document, int width);
+    static int codeLeftEdge(const QImage &image, int row, QRgb code);
+    static const QColor &codeColor();
 };
+
+const QColor &MarkdownTest::codeColor()
+{
+    static const QColor color = ThemeDefinition::light().markdown.codeBackground;
+    return color;
+}
+
+QImage MarkdownTest::renderImage(QTextDocument *document, int width)
+{
+    document->setTextWidth(width);
+    const int height = int(document->size().height()) + 2;
+    QImage image(width, height, QImage::Format_ARGB32);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    document->drawContents(&painter, QRectF(0, 0, width, height));
+    painter.end();
+    return image;
+}
+
+int MarkdownTest::codeLeftEdge(const QImage &image, int row, QRgb code)
+{
+    for (int x = 0; x < image.width(); ++x) {
+        if (image.pixel(x, row) == code)
+            return x;
+    }
+    return -1;
+}
 
 void MarkdownTest::render(QTextDocument *document, const QString &markdown, const QString &baseDir)
 {
@@ -153,6 +184,33 @@ void MarkdownTest::codeBlockIsOneContinuousRegion()
     QVERIFY(right - left > 400);
 }
 
+void MarkdownTest::wrappedCodeLineStaysInsideTheBox()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("```\nQElapsedTimer m_frameTimer; // a very long comment that must wrap somewhere across lines\nshort;\n```\n"));
+
+    // Narrow width forces the long line to wrap.
+    const QImage image = renderImage(&document, 320);
+    const QRgb code = codeColor().rgb();
+
+    int first = -1;
+    int last = -1;
+    for (int y = 0; y < image.height(); ++y) {
+        if (image.pixel(image.width() / 2, y) == code) {
+            if (first < 0)
+                first = y;
+            last = y;
+        }
+    }
+    QVERIFY(first >= 0);
+
+    // The shaded box must be a rectangle: its left edge is the same on every
+    // row, so a wrapped continuation line never spills out to the left.
+    const int edge = codeLeftEdge(image, first, code);
+    for (int y = first; y <= last; ++y)
+        QCOMPARE(codeLeftEdge(image, y, code), edge);
+}
+
 void MarkdownTest::inlineCodeSpan()
 {
     QTextDocument document;
@@ -167,16 +225,22 @@ void MarkdownTest::inlineCodeSpan()
 
 void MarkdownTest::fencedCodeBlockCarriesLanguage()
 {
-    const ThemeDefinition theme = ThemeDefinition::light();
     QTextDocument document;
     render(&document, QStringLiteral("```cpp\nint x = 0;\n```\n"));
-    const QTextBlock block = document.firstBlock();
+
+    QTextBlock block;
+    for (QTextBlock candidate = document.firstBlock(); candidate.isValid(); candidate = candidate.next()) {
+        if (candidate.blockFormat().intProperty(MarkdownBuilder::kindKey) == int(MarkdownBuilder::BlockKind::Code)) {
+            block = candidate;
+            break;
+        }
+    }
+    QVERIFY(block.isValid());
 
     QCOMPARE(block.blockFormat().intProperty(MarkdownBuilder::kindKey), int(MarkdownBuilder::BlockKind::Code));
     QCOMPARE(block.blockFormat().stringProperty(MarkdownBuilder::languageKey), QStringLiteral("cpp"));
     QCOMPARE(block.text(), QStringLiteral("int x = 0;"));
     QVERIFY(QFontInfo(block.charFormat().font()).fixedPitch());
-    QCOMPARE(block.blockFormat().background().color(), theme.markdown.codeBackground);
 }
 
 void MarkdownTest::bulletList()
