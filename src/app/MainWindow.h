@@ -14,6 +14,8 @@ class QCloseEvent;
 class QLabel;
 class QSplitter;
 class FileDocument;
+class FindBar;
+class FindController;
 class MarkdownEditor;
 class MarkdownView;
 class ScrollSync;
@@ -63,8 +65,13 @@ private:
     void onExternalChange();
 
     QSplitter *m_splitter = nullptr;
+    QWidget *m_editorPane = nullptr;
+    QWidget *m_viewerPane = nullptr;
     MarkdownEditor *m_editor = nullptr;
     MarkdownView *m_viewer = nullptr;
+    FindBar *m_editorBar = nullptr;
+    FindBar *m_viewerBar = nullptr;
+    FindController *m_find = nullptr;
     ScrollSync *m_scrollSync = nullptr;
     FileDocument *m_file = nullptr;
     ThemeManager *m_themes = nullptr;

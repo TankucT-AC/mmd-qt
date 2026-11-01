@@ -8,6 +8,7 @@
 
 #include <QPainter>
 #include <QTextBlock>
+#include <QTextCursor>
 
 #include <algorithm>
 
@@ -48,10 +49,10 @@ MarkdownEditor::MarkdownEditor(QWidget *parent)
 
     connect(this, &QPlainTextEdit::blockCountChanged, this, &MarkdownEditor::updateLineNumberAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &MarkdownEditor::updateLineNumberArea);
-    connect(this, &QPlainTextEdit::cursorPositionChanged, this, &MarkdownEditor::highlightCurrentLine);
+    connect(this, &QPlainTextEdit::cursorPositionChanged, this, &MarkdownEditor::applyExtraSelections);
 
     updateLineNumberAreaWidth();
-    highlightCurrentLine();
+    applyExtraSelections();
 }
 
 void MarkdownEditor::setTheme(const ThemeDefinition &theme)
@@ -59,7 +60,7 @@ void MarkdownEditor::setTheme(const ThemeDefinition &theme)
     m_theme = theme;
     m_highlighter->setTheme(theme); // re-highlights
     setPalette(theme.palette);
-    highlightCurrentLine();
+    applyExtraSelections();
 }
 
 void MarkdownEditor::setDocumentLimits(const DocumentLimits &limits)
@@ -119,7 +120,7 @@ void MarkdownEditor::updateLineNumberArea(const QRect &rect, int dy)
         updateLineNumberAreaWidth();
 }
 
-void MarkdownEditor::highlightCurrentLine()
+void MarkdownEditor::applyExtraSelections()
 {
     QList<QTextEdit::ExtraSelection> selections;
 
@@ -130,7 +131,56 @@ void MarkdownEditor::highlightCurrentLine()
     currentLine.cursor.clearSelection();
     selections.append(currentLine);
 
+    // Search hits are appended after the current-line tint so that they draw on
+    // top of it. The current hit also takes the selection foreground: its tint
+    // alone would be invisible while the find bar holds the focus.
+    for (int i = 0; i < m_findMatches.size(); ++i) {
+        const FindState::Match &match = m_findMatches.at(i);
+        const bool isCurrent = i == m_findCurrent;
+
+        QTextEdit::ExtraSelection selection;
+        QColor background = palette().color(QPalette::Highlight);
+        if (!isCurrent)
+            background.setAlpha(90); // a hint of the same theme colour
+        selection.format.setBackground(background);
+        if (isCurrent)
+            selection.format.setForeground(palette().color(QPalette::HighlightedText));
+        selection.cursor = QTextCursor(document());
+        selection.cursor.setPosition(match.position);
+        selection.cursor.setPosition(match.position + match.length, QTextCursor::KeepAnchor);
+        selections.append(selection);
+    }
+
     setExtraSelections(selections);
+}
+
+void MarkdownEditor::setFindMatches(const QVector<FindState::Match> &matches, int currentIndex)
+{
+    m_findMatches = matches;
+    m_findCurrent = currentIndex;
+    applyExtraSelections();
+
+    if (currentIndex < 0 || currentIndex >= m_findMatches.size())
+        return;
+
+    // Put the caret on the hit, so the user can carry on typing from it. The
+    // resulting cursor-position change re-enters applyExtraSelections, which
+    // rebuilds the same list: harmless.
+    const FindState::Match &match = m_findMatches.at(currentIndex);
+    QTextCursor cursor(document());
+    cursor.setPosition(match.position);
+    cursor.setPosition(match.position + match.length, QTextCursor::KeepAnchor);
+    setTextCursor(cursor);
+    ensureCursorVisible();
+}
+
+void MarkdownEditor::clearFindMatches()
+{
+    if (m_findMatches.isEmpty() && m_findCurrent < 0)
+        return;
+    m_findMatches.clear();
+    m_findCurrent = -1;
+    applyExtraSelections();
 }
 
 void MarkdownEditor::lineNumberAreaPaintEvent(QPaintEvent *event)

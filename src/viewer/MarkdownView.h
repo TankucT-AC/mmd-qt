@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/DocumentLimits.h"
+#include "core/FindState.h"
 #include "core/MarkdownBuilder.h"
 
 #include <QTextBrowser>
@@ -61,6 +62,11 @@ public:
         return m_lastRenderMs;
     }
 
+    // Search decorations. The pane is read-only, so it highlights the hits and
+    // scrolls the current one into view instead of moving a caret.
+    void setFindMatches(const QVector<FindState::Match> &matches, int currentIndex);
+    void clearFindMatches();
+
     // Schedules a render; calls within the interval are coalesced.
     void setMarkdown(const QString &markdown);
 
@@ -106,6 +112,7 @@ protected:
 private:
     void rebuild();
     void buildPlaceholder();
+    void applyFindSelections();
     int effectiveRenderInterval() const;
     void updateContentMargins();
     void updateHoveredFrame(const QPoint &pos);
@@ -127,4 +134,6 @@ private:
     bool m_showingPlaceholder = false;
     bool m_previewRequested = false; // the user asked for this one render
     int m_lastRenderMs = 0;
+    QVector<FindState::Match> m_findMatches;
+    int m_findCurrent = -1;
 };

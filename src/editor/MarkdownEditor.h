@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/DocumentLimits.h"
+#include "core/FindState.h"
 #include "core/Theme.h"
 
 #include <QPlainTextEdit>
@@ -36,6 +37,13 @@ public:
         return m_highlightingEnabled;
     }
 
+    // Search decorations. The editor owns them because Qt allows only a single
+    // ExtraSelections list: the current-line tint and the search hits have to be
+    // composed into one call. The caret follows the current hit, so the user can
+    // keep typing from there.
+    void setFindMatches(const QVector<FindState::Match> &matches, int currentIndex);
+    void clearFindMatches();
+
     // Replaces the whole document and re-highlights. Programmatic text
     // replacement needs an explicit rehighlight: the synchronous pass Qt runs
     // during setPlainText writes to a layout that is discarded afterwards.
@@ -49,7 +57,7 @@ protected:
 private slots:
     void updateLineNumberAreaWidth();
     void updateLineNumberArea(const QRect &rect, int dy);
-    void highlightCurrentLine();
+    void applyExtraSelections();
 
 private:
     class LineNumberArea;
@@ -60,4 +68,6 @@ private:
     LineNumberArea *m_lineNumberArea = nullptr;
     ThemeDefinition m_theme;
     bool m_highlightingEnabled = true;
+    QVector<FindState::Match> m_findMatches;
+    int m_findCurrent = -1;
 };

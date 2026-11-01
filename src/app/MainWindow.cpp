@@ -3,11 +3,13 @@
 
 #include "app/MainWindow.h"
 
+#include "app/FindController.h"
 #include "app/ScrollSync.h"
 #include "core/FileDocument.h"
 #include "core/SystemThemeProvider.h"
 #include "core/ThemeManager.h"
 #include "editor/MarkdownEditor.h"
+#include "viewer/FindBar.h"
 #include "viewer/MarkdownView.h"
 
 #include <QAction>
@@ -27,6 +29,7 @@
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QVBoxLayout>
 
 namespace
 {
@@ -85,12 +88,12 @@ MainWindow::MainWindow(QWidget *parent)
 
 QWidget *MainWindow::editorPanel() const
 {
-    return m_editor;
+    return m_editorPane;
 }
 
 QWidget *MainWindow::viewerPanel() const
 {
-    return m_viewer;
+    return m_viewerPane;
 }
 
 QAction *MainWindow::toggleEditorAction() const
@@ -127,15 +130,36 @@ void MainWindow::buildUi()
 {
     m_splitter = new QSplitter(Qt::Horizontal, this);
 
-    m_editor = new MarkdownEditor(m_splitter);
-    m_viewer = new MarkdownView(m_splitter);
+    // Each pane is a container: the find strip lives directly above its view and
+    // hides with it.
+    m_editorPane = new QWidget(m_splitter);
+    m_editorBar = new FindBar(m_editorPane);
+    m_editor = new MarkdownEditor(m_editorPane);
+    auto *editorLayout = new QVBoxLayout(m_editorPane);
+    editorLayout->setContentsMargins(0, 0, 0, 0);
+    editorLayout->setSpacing(0);
+    editorLayout->addWidget(m_editorBar);
+    editorLayout->addWidget(m_editor, 1);
 
-    m_splitter->addWidget(m_editor);
-    m_splitter->addWidget(m_viewer);
+    m_viewerPane = new QWidget(m_splitter);
+    m_viewerBar = new FindBar(m_viewerPane);
+    m_viewer = new MarkdownView(m_viewerPane);
+    auto *viewerLayout = new QVBoxLayout(m_viewerPane);
+    viewerLayout->setContentsMargins(0, 0, 0, 0);
+    viewerLayout->setSpacing(0);
+    viewerLayout->addWidget(m_viewerBar);
+    viewerLayout->addWidget(m_viewer, 1);
+
+    m_splitter->addWidget(m_editorPane);
+    m_splitter->addWidget(m_viewerPane);
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 1);
 
     setCentralWidget(m_splitter);
+
+    m_editorBar->hide();
+    m_viewerBar->hide();
+    m_find = new FindController(m_editor, m_editorBar, m_viewer, m_viewerBar, this);
 
     m_statusInfo = new QLabel(this);
     m_statusRender = new QLabel(this);
@@ -165,19 +189,30 @@ void MainWindow::buildMenus()
     fileMenu->addSeparator();
     fileMenu->addAction(tr("&Quit"), QKeySequence(QStringLiteral("Ctrl+Q")), this, &QWidget::close);
 
+    QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
+    editMenu->addAction(tr("&Find…"), QKeySequence::Find, this, [this] {
+        m_find->openForFocusedPane();
+    });
+    editMenu->addAction(tr("Find &Next"), QKeySequence(QStringLiteral("F3")), this, [this] {
+        m_find->findNext();
+    });
+    editMenu->addAction(tr("Find &Previous"), QKeySequence(QStringLiteral("Shift+F3")), this, [this] {
+        m_find->findPrevious();
+    });
+
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
 
     m_toggleEditor = viewMenu->addAction(tr("&Editor"));
     m_toggleEditor->setCheckable(true);
     m_toggleEditor->setChecked(true);
     m_toggleEditor->setShortcut(QStringLiteral("F9"));
-    connect(m_toggleEditor, &QAction::toggled, m_editor, &QWidget::setVisible);
+    connect(m_toggleEditor, &QAction::toggled, m_editorPane, &QWidget::setVisible);
 
     m_toggleViewer = viewMenu->addAction(tr("&Preview"));
     m_toggleViewer->setCheckable(true);
     m_toggleViewer->setChecked(true);
     m_toggleViewer->setShortcut(QStringLiteral("F10"));
-    connect(m_toggleViewer, &QAction::toggled, m_viewer, &QWidget::setVisible);
+    connect(m_toggleViewer, &QAction::toggled, m_viewerPane, &QWidget::setVisible);
 
     QMenu *themeMenu = viewMenu->addMenu(tr("&Theme"));
     auto *group = new QActionGroup(this);
@@ -243,6 +278,10 @@ void MainWindow::applyTheme(const ThemeDefinition &theme)
 
 void MainWindow::applyFileContent(const QString &content, const QString &path)
 {
+    // Whatever was being searched for is now at different offsets, in a
+    // different file.
+    m_find->reset();
+
     // Decide up front how much work this document is worth, before either pane
     // sees it: the limits change what setMarkdown() does.
     m_limits = DocumentLimits::forSize(content.toUtf8().size());

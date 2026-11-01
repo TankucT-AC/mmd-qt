@@ -11,6 +11,8 @@ add_library(mmd_core STATIC
     app/MainWindow.cpp
     app/ScrollSync.h
     app/ScrollSync.cpp
+    app/FindController.h
+    app/FindController.cpp
     core/Theme.h
     core/Theme.cpp
     core/ThemeManager.h
@@ -25,6 +27,8 @@ add_library(mmd_core STATIC
     core/ImageResolver.cpp
     core/DocumentLimits.h
     core/DocumentLimits.cpp
+    core/FindState.h
+    core/FindState.cpp
     core/SystemThemeProvider.h
     core/SystemThemeProvider.cpp
     core/MarkdownBuilder.h
@@ -35,6 +39,8 @@ add_library(mmd_core STATIC
     editor/MarkdownHighlighter.cpp
     viewer/MarkdownView.h
     viewer/MarkdownView.cpp
+    viewer/FindBar.h
+    viewer/FindBar.cpp
     viewer/GifObjectHandler.h
     viewer/GifObjectHandler.cpp
     viewer/CheckboxObjectHandler.h

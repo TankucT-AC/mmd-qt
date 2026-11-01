@@ -299,6 +299,61 @@ void MarkdownView::buildPlaceholder()
     m_lastRenderMs = 0;
     emit rendered();
 }
+
+void MarkdownView::setFindMatches(const QVector<FindState::Match> &matches, int currentIndex)
+{
+    m_findMatches = matches;
+    m_findCurrent = currentIndex;
+    applyFindSelections();
+
+    if (currentIndex < 0 || currentIndex >= m_findMatches.size())
+        return;
+
+    // A read-only pane keeps no caret of its own, so the hit is brought into
+    // view by scrolling: cursorRect() reports where the match ended up.
+    const FindState::Match &match = m_findMatches.at(currentIndex);
+    QTextCursor cursor(document());
+    cursor.setPosition(match.position);
+    const int top = cursorRect(cursor).top();
+    verticalScrollBar()->setValue(verticalScrollBar()->value() + top - height() / 3);
+}
+
+void MarkdownView::clearFindMatches()
+{
+    if (m_findMatches.isEmpty() && m_findCurrent < 0)
+        return;
+    m_findMatches.clear();
+    m_findCurrent = -1;
+    applyFindSelections();
+}
+
+void MarkdownView::applyFindSelections()
+{
+    if (m_findMatches.isEmpty()) {
+        setExtraSelections({});
+        return;
+    }
+
+    QList<QTextEdit::ExtraSelection> selections;
+    selections.reserve(m_findMatches.size());
+    for (int i = 0; i < m_findMatches.size(); ++i) {
+        const FindState::Match &match = m_findMatches.at(i);
+        const bool isCurrent = i == m_findCurrent;
+
+        QTextEdit::ExtraSelection selection;
+        QColor background = palette().color(QPalette::Highlight);
+        if (!isCurrent)
+            background.setAlpha(90); // a hint of the same theme colour
+        selection.format.setBackground(background);
+        if (isCurrent)
+            selection.format.setForeground(palette().color(QPalette::HighlightedText));
+        selection.cursor = QTextCursor(document());
+        selection.cursor.setPosition(match.position);
+        selection.cursor.setPosition(match.position + match.length, QTextCursor::KeepAnchor);
+        selections.append(selection);
+    }
+    setExtraSelections(selections);
+}
 QVector<QTextFrame *> MarkdownView::codeFrames() const
 {
     QVector<QTextFrame *> frames;
