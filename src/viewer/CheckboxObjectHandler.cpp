@@ -9,6 +9,8 @@
 #include <QPainterPath>
 #include <QTextDocument>
 
+#include <algorithm>
+
 CheckboxObjectHandler::CheckboxObjectHandler(QObject *parent)
     : QObject(parent)
     , m_border(QColor(0x6e, 0x77, 0x81))
@@ -39,7 +41,7 @@ void CheckboxObjectHandler::drawObject(QPainter *painter, const QRectF &rect, QT
     Q_UNUSED(posInDocument);
 
     const bool checked = format.property(MarkdownBuilder::checkboxCheckedKey).toBool();
-    const qreal side = qMin(rect.width(), rect.height());
+    const qreal side = (std::min)(rect.width(), rect.height());
     // Zed-style: a square box, aligned to the text baseline area.
     const QRectF box(qRound(rect.x()), qRound(rect.center().y() - side / 2.0), qRound(side), qRound(side));
 
@@ -55,7 +57,7 @@ void CheckboxObjectHandler::drawObject(QPainter *painter, const QRectF &rect, QT
         tick.moveTo(box.left() + side * 0.24, box.top() + side * 0.52);
         tick.lineTo(box.left() + side * 0.43, box.top() + side * 0.71);
         tick.lineTo(box.left() + side * 0.77, box.top() + side * 0.30);
-        QPen pen(m_check, qMax(1.4, side * 0.16));
+        QPen pen(m_check, (std::max)(1.4, side * 0.16));
         pen.setCapStyle(Qt::FlatCap);
         pen.setJoinStyle(Qt::MiterJoin);
         painter->setRenderHint(QPainter::Antialiasing, true);
@@ -63,7 +65,7 @@ void CheckboxObjectHandler::drawObject(QPainter *painter, const QRectF &rect, QT
         painter->setBrush(Qt::NoBrush);
         painter->drawPath(tick);
     } else {
-        painter->setPen(QPen(m_border, qMax(1.2, side * 0.09)));
+        painter->setPen(QPen(m_border, (std::max)(1.2, side * 0.09)));
         painter->setBrush(Qt::NoBrush);
         painter->drawRect(box.adjusted(0.5, 0.5, -0.5, -0.5));
     }

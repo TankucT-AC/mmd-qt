@@ -48,7 +48,7 @@ void GifObjectHandler::syncToDocument()
         }
     }
 
-    const QList<QString> known = m_movies.keys();
+    const QStringList known = m_movies.keys();
     for (const QString &path : known) {
         if (present.contains(path))
             continue;
