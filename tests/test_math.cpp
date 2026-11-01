@@ -31,6 +31,7 @@ private slots:
     void rendersBigDelimiters();
     void blankRenderFallsBackToNoImage();
     void rendersAGalleryOfFormulas();
+    void glyphsStayInsideTheirLayoutBox();
     void handlerDrawsTheFormula();
     void handlerFallsBackToSourceText();
     void staysFastForManyFormulas();
@@ -38,6 +39,8 @@ private slots:
 private:
     static bool hasInk(const QImage &image);
     static int inkColumnCount(const QImage &image);
+    static int firstInkColumn(const QImage &image);
+    static int lastInkColumn(const QImage &image);
 };
 
 bool MathTest::hasInk(const QImage &image)
@@ -153,6 +156,24 @@ int MathTest::inkColumnCount(const QImage &image)
     return columns;
 }
 
+int MathTest::firstInkColumn(const QImage &image)
+{
+    for (int x = 0; x < image.width(); ++x)
+        for (int y = 0; y < image.height(); ++y)
+            if (qAlpha(image.pixel(x, y)) > 0)
+                return x;
+    return image.width();
+}
+
+int MathTest::lastInkColumn(const QImage &image)
+{
+    for (int x = image.width() - 1; x >= 0; --x)
+        for (int y = 0; y < image.height(); ++y)
+            if (qAlpha(image.pixel(x, y)) > 0)
+                return x;
+    return -1;
+}
+
 void MathTest::blankRenderFallsBackToNoImage()
 {
     MathRenderer &renderer = MathRenderer::instance();
@@ -173,6 +194,7 @@ void MathTest::rendersAGalleryOfFormulas()
     renderer.clearCache();
 
     const QStringList gallery = {
+        QStringLiteral("E = mc^2"),
         QStringLiteral("\\sum_{i=1}^{n} x_i"),
         QStringLiteral("\\prod_{k=1}^{n} a_k"),
         QStringLiteral("\\int_0^{\\infty} e^{-x}\\,dx"),
@@ -271,6 +293,30 @@ void MathTest::handlerFallsBackToSourceText()
             if (image.pixel(x, y) != QColor(Qt::white).rgb())
                 drawn = true;
     QVERIFY2(drawn, "the refused formula was drawn as nothing at all");
+}
+
+void MathTest::glyphsStayInsideTheirLayoutBox()
+{
+    // A glyph drawn wider than its layout slot lands on its neighbour, and the
+    // overshoot accumulates along the formula: "abcdef" used to overflow its
+    // layout box on the right. The bitmap reserves kPadding on each side; only
+    // the italic overhang of Computer Modern may reach past the advance width,
+    // by about a pixel.
+    MathRenderer &renderer = MathRenderer::instance();
+    renderer.clearCache();
+
+    const QStringList formulas = {
+        QStringLiteral("E = mc^2"),
+        QStringLiteral("abcdef"),
+        QStringLiteral("\\int_0^{\\infty} e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}"),
+    };
+
+    for (const QString &formula : formulas) {
+        const QImage image = renderer.image(formula, true, 16, QColor(Qt::black), 1.0);
+        QVERIFY(!image.isNull());
+        QVERIFY2(firstInkColumn(image) >= 3, qPrintable(QStringLiteral("ink overflows the left edge: %1").arg(formula)));
+        QVERIFY2(lastInkColumn(image) <= image.width() - 2, qPrintable(QStringLiteral("ink overflows the right edge: %1").arg(formula)));
+    }
 }
 
 void MathTest::staysFastForManyFormulas()

@@ -51,18 +51,18 @@ constexpr int kGlyphOutlinePixelSize = 64;
 // MicroTeX creates its fonts at a nominal 1pt and does the real scaling through
 // the painter transform. At a ~1px pixel size FreeType refuses to rasterise
 // several cmex10 glyphs outright -- the display-size operators (SUMMATION at
-// slot 0x58) and the grown delimiters -- which left holes in rendered formulas:
-// the glyph was laid out, but never drawn. Taking the outlines from a font at a
-// healthy pixel size and scaling them back into the caller's units keeps every
-// glyph, and needs no shaping, which formulas do not rely on.
+// slot 0x58) and the grown delimiters -- which left holes in rendered formulas.
+//
+// The outlines are therefore taken from a font at a healthy pixel size and
+// scaled into the caller's units by the font's own point size: MicroTeX sizes
+// its fonts in layout units (1pt font = 1 unit per em), so scaling by
+// pointSize/64 makes the drawn width match the layout slot exactly. Scaling by
+// the point-to-pixel factor instead drew every glyph a third wider than its
+// slot, and the overshoot accumulated along the formula into overlapping
+// neighbours. No shaping is needed, which formulas do not rely on.
 void drawTextOutlines(QPainter *painter, const QFont &base, const QString &text, float x, float y, const QBrush &brush)
 {
-  const QPaintDevice *device = painter->device();
-  qreal emPixels = 0;
-  if (base.pointSizeF() > 0)
-    emPixels = base.pointSizeF() * (device ? qreal(device->logicalDpiY()) : 96.0) / 72.0;
-  else
-    emPixels = base.pixelSize();
+  const qreal emUnits = base.pointSizeF() > 0 ? base.pointSizeF() : 1.0;
 
   QFont crisp = base;
   crisp.setPixelSize(kGlyphOutlinePixelSize);
@@ -77,7 +77,7 @@ void drawTextOutlines(QPainter *painter, const QFont &base, const QString &text,
 
   const QList<quint32> glyphs = raw.glyphIndexesForString(text);
   const QVector<QPointF> advances = raw.advancesForGlyphIndexes(glyphs);
-  const qreal scale = emPixels / kGlyphOutlinePixelSize;
+  const qreal scale = emUnits / kGlyphOutlinePixelSize;
 
   painter->save();
   painter->scale(scale, scale);
