@@ -19,6 +19,8 @@ add_library(mmd_core STATIC
     core/FontManager.cpp
     core/FileDocument.h
     core/FileDocument.cpp
+    core/HtmlFragment.h
+    core/HtmlFragment.cpp
     core/ImageResolver.h
     core/ImageResolver.cpp
     core/SystemThemeProvider.h
@@ -35,6 +37,8 @@ add_library(mmd_core STATIC
     viewer/GifObjectHandler.cpp
     viewer/CheckboxObjectHandler.h
     viewer/CheckboxObjectHandler.cpp
+    viewer/ChipObjectHandler.h
+    viewer/ChipObjectHandler.cpp
     viewer/CodeHighlighter.h
     viewer/CodeHighlighter.cpp
 )

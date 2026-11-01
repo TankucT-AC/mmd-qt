@@ -3,6 +3,7 @@
 
 #include "core/MarkdownBuilder.h"
 
+#include "core/HtmlFragment.h"
 #include "core/ImageResolver.h"
 
 #include <QDir>
@@ -12,6 +13,7 @@
 #include <QImage>
 #include <QImageReader>
 #include <QPainter>
+#include <QRegularExpression>
 #include <QScreen>
 #include <QStack>
 #include <QSvgRenderer>
@@ -135,6 +137,9 @@ private:
         bool strong = false;
         bool del = false;
         bool code = false;
+        int sub = 0;
+        int sup = 0;
+        bool kbd = false;
     };
 
     struct PendingBlock {
@@ -176,12 +181,20 @@ private:
 
     void setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList);
     void startBlock();
-    void insertImage(const MD_SPAN_IMG_DETAIL *detail);
+    void insertImageElement(const QString &source, const QString &alt);
+    void insertChip(const QString &text, MarkdownBuilder::ChipKind kind);
     void insertVerbatim(const QString &content);
     void startVerbatimFrame(const QColor &background, const QString &language);
     void endVerbatimFrame();
     void removeFrameSpacers();
     void emitTable();
+
+    // HTML support: a tolerant subset that makes GitHub READMEs readable.
+    void renderHtmlBlock(const QString &html);
+    void applyInlineHtml(const QString &html);
+    void insertSummary(const QString &html);
+    void renderCallout(QTextFrame *quote);
+
     QString linkFor(const QString &href) const;
 
     QTextFrame *pushFrame(const QTextFrameFormat &format);
@@ -235,6 +248,17 @@ private:
 
     std::optional<TableState> m_table = std::nullopt;
     QStack<SavedState> m_cellStack;
+
+    // HTML subset state.
+    bool m_inHtmlBlock = false;
+    QString m_htmlBuffer;
+    QString m_pendingImageSrc;
+    QString m_imageAltBuffer;
+    int m_htmlCenterDepth = 0; // inside <div align="center">
+    int m_htmlDetailsDepth = 0; // inside <details>
+    QVector<QString> m_htmlTagStack; // open inline tags, for matching </...>
+    QString m_kbdBuffer; // text collected between <kbd> and </kbd>
+    bool m_inKbd = false;
 };
 
 int onEnterBlock(MD_BLOCKTYPE type, void *detail, void *userdata)
@@ -299,12 +323,17 @@ void Builder::startBlock()
     m_pending = PendingBlock{};
     m_blockCharFormat = pending.baseCharFormat;
 
+    // Inside <div align="center"> every block is centred.
+    QTextBlockFormat blockFormat = pending.format;
+    if (m_htmlCenterDepth > 0)
+        blockFormat.setAlignment(Qt::AlignHCenter);
+
     if (m_firstBlock) {
-        m_cursor.setBlockFormat(pending.format);
+        m_cursor.setBlockFormat(blockFormat);
         m_cursor.setBlockCharFormat(pending.baseCharFormat);
         m_firstBlock = false;
     } else {
-        m_cursor.insertBlock(pending.format, pending.baseCharFormat);
+        m_cursor.insertBlock(blockFormat, pending.baseCharFormat);
     }
 
     if (pending.attachToList) {
@@ -354,6 +383,17 @@ QTextCharFormat Builder::composeCharFormat() const
         format.setBackground(m_style.theme.markdown.codeBackground);
         format.setForeground(m_style.theme.markdown.codeText);
     }
+    if (m_span.kbd) {
+        QFont key = m_style.fonts.codeFont();
+        key.setPointSizeF(key.pointSizeF() * 0.92);
+        format.setFont(key);
+        format.setBackground(m_style.theme.markdown.codeBackground);
+        format.setForeground(m_style.theme.markdown.codeText);
+    }
+    if (m_span.sup > 0)
+        format.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
+    else if (m_span.sub > 0)
+        format.setVerticalAlignment(QTextCharFormat::AlignSubScript);
     if (!m_linkHref.isEmpty()) {
         format.setAnchor(true);
         format.setAnchorHref(m_linkHref);
@@ -527,6 +567,7 @@ void Builder::popFrame()
     if (context.isQuote) {
         if (auto *table = qobject_cast<QTextTable *>(context.frame))
             table->cellAt(0, 0).setFormat(context.quoteCellFormat);
+        renderCallout(context.frame);
     }
     m_cursor = QTextCursor(m_document);
     m_cursor.setPosition(context.frame->lastPosition() + 1);
@@ -586,7 +627,8 @@ int Builder::enterBlock(MD_BLOCKTYPE type, void *detail)
         break;
     }
     case MD_BLOCK_HTML:
-        startVerbatimFrame(m_style.theme.markdown.quoteBackground, QString());
+        m_inHtmlBlock = true;
+        m_htmlBuffer.clear();
         break;
     case MD_BLOCK_P:
         setPendingBlock(paragraphFormat(), bodyCharFormat(), m_inListItem && !m_listItemFirstBlockDone);
@@ -683,8 +725,12 @@ int Builder::leaveBlock(MD_BLOCKTYPE type, void *detail)
         startBlock(); // materialize even when there was no text callback
         break;
     case MD_BLOCK_CODE:
-    case MD_BLOCK_HTML:
         endVerbatimFrame();
+        break;
+    case MD_BLOCK_HTML:
+        m_inHtmlBlock = false;
+        renderHtmlBlock(m_htmlBuffer);
+        m_htmlBuffer.clear();
         break;
     case MD_BLOCK_HR:
         startBlock();
@@ -743,11 +789,16 @@ int Builder::enterSpan(MD_SPANTYPE type, void *detail)
         m_linkHref = linkFor(decodeAttribute(link->href));
         break;
     }
-    case MD_SPAN_IMG:
+    case MD_SPAN_IMG: {
+        const auto *image = static_cast<const MD_SPAN_IMG_DETAIL *>(detail);
         startBlock();
         ++m_imageDepth;
-        insertImage(static_cast<const MD_SPAN_IMG_DETAIL *>(detail));
+        // The alt text arrives as text callbacks after this point; collect it
+        // and insert the image (or a chip) on leave.
+        m_pendingImageSrc = decodeAttribute(image->src);
+        m_imageAltBuffer.clear();
         break;
+    }
     default:
         break;
     }
@@ -775,6 +826,9 @@ int Builder::leaveSpan(MD_SPANTYPE type, void *detail)
         break;
     case MD_SPAN_IMG:
         --m_imageDepth;
+        insertImageElement(m_pendingImageSrc, m_imageAltBuffer.trimmed());
+        m_pendingImageSrc.clear();
+        m_imageAltBuffer.clear();
         break;
     default:
         break;
@@ -865,8 +919,25 @@ void Builder::insertVerbatim(const QString &content)
 
 int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
 {
-    if (m_imageDepth > 0)
-        return 0; // image alt text is not rendered
+    if (m_imageDepth > 0) {
+        // Alt text of an image: kept to label a chip when the source is remote.
+        switch (type) {
+        case MD_TEXT_ENTITY:
+            m_imageAltBuffer += decodeEntityText(data, size);
+            break;
+        case MD_TEXT_NULLCHAR:
+            m_imageAltBuffer += QChar::ReplacementCharacter;
+            break;
+        case MD_TEXT_BR:
+        case MD_TEXT_SOFTBR:
+            m_imageAltBuffer += QLatin1Char(' ');
+            break;
+        default:
+            m_imageAltBuffer += QString::fromUtf8(data, int(size));
+            break;
+        }
+        return 0;
+    }
 
     QString decoded;
     switch (type) {
@@ -888,6 +959,21 @@ int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
         break;
     }
 
+    if (m_inHtmlBlock) {
+        m_htmlBuffer += QString::fromUtf8(data, int(size));
+        return 0;
+    }
+
+    if (type == MD_TEXT_HTML) {
+        applyInlineHtml(QString::fromUtf8(data, int(size)));
+        return 0;
+    }
+
+    if (m_inKbd && type != MD_TEXT_BR) {
+        m_kbdBuffer += type == MD_TEXT_ENTITY ? decodeEntityText(data, size) : QString::fromUtf8(data, int(size));
+        return 0;
+    }
+
     if (m_inVerbatimBlock) {
         insertVerbatim(decoded);
         return 0;
@@ -900,14 +986,19 @@ int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
     return 0;
 }
 
-void Builder::insertImage(const MD_SPAN_IMG_DETAIL *detail)
+void Builder::insertImageElement(const QString &source, const QString &alt)
 {
-    const QString source = decodeAttribute(detail->src);
     const QString path = ImageResolver::resolve(source, m_style.baseDir);
-    const QTextCharFormat base = m_blockCharFormat;
+
+    // A remote image (e.g. a shields.io badge) is not fetched: show its alt
+    // text as a chip so the document stays readable offline.
+    if (path.isEmpty() && !alt.isEmpty()) {
+        insertChip(alt, MarkdownBuilder::ChipKind::Badge);
+        return;
+    }
 
     if (path.isEmpty() || !QFileInfo::exists(path)) {
-        QTextCharFormat missing = base;
+        QTextCharFormat missing = m_blockCharFormat;
         missing.setForeground(m_style.theme.markdown.weakText);
         missing.setFontItalic(true);
         m_cursor.insertText(QStringLiteral("[image: %1]").arg(source), missing);
@@ -1010,6 +1101,325 @@ void Builder::emitTable()
 
     m_cursor = QTextCursor(m_document);
     m_cursor.movePosition(QTextCursor::End);
+}
+
+void Builder::insertChip(const QString &text, MarkdownBuilder::ChipKind kind)
+{
+    QTextCharFormat format = m_blockCharFormat;
+    format.setObjectType(MarkdownBuilder::chipObjectType);
+    format.setProperty(MarkdownBuilder::chipTextKey, text);
+    format.setProperty(MarkdownBuilder::chipKindKey, int(kind));
+    QFont font = m_style.fonts.bodyFont();
+    font.setPointSizeF(font.pointSizeF() * 0.92);
+    format.setFont(font);
+    m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+}
+
+void Builder::applyInlineHtml(const QString &html)
+{
+    const QVector<HtmlToken> tokens = parseHtmlFragment(html);
+    for (const HtmlToken &token : tokens) {
+        switch (token.kind) {
+        case HtmlToken::Text:
+            if (!token.text.isEmpty()) {
+                startBlock();
+                m_cursor.insertText(token.text, composeCharFormat());
+            }
+            break;
+        case HtmlToken::Comment:
+        case HtmlToken::Declaration:
+            break;
+        case HtmlToken::StartTag:
+        case HtmlToken::SelfClosingTag: {
+            const QString &name = token.name;
+            if (name == QLatin1String("b") || name == QLatin1String("strong")) {
+                m_span.strong = true;
+                m_htmlTagStack.append(name);
+            } else if (name == QLatin1String("i") || name == QLatin1String("em")) {
+                m_span.em = true;
+                m_htmlTagStack.append(name);
+            } else if (name == QLatin1String("code") || name == QLatin1String("tt")) {
+                m_span.code = true;
+                m_htmlTagStack.append(name);
+            } else if (name == QLatin1String("sub")) {
+                ++m_span.sub;
+                m_htmlTagStack.append(name);
+            } else if (name == QLatin1String("sup")) {
+                ++m_span.sup;
+                m_htmlTagStack.append(name);
+            } else if (name == QLatin1String("kbd")) {
+                m_inKbd = true;
+                m_kbdBuffer.clear();
+                m_htmlTagStack.append(name);
+            } else if (name == QLatin1String("a")) {
+                startBlock();
+                m_linkHref = linkFor(htmlAttribute(token, QStringLiteral("href")));
+                m_htmlTagStack.append(name);
+            } else if (name == QLatin1String("br")) {
+                startBlock();
+                m_cursor.insertText(QString(QChar(0x2028)), composeCharFormat());
+            } else if (name == QLatin1String("img")) {
+                startBlock();
+                insertImageElement(htmlAttribute(token, QStringLiteral("src")), htmlAttribute(token, QStringLiteral("alt")));
+            } else if (!token.selfClosing && !isHtmlVoidElement(name)) {
+                m_htmlTagStack.append(QString()); // unknown container: balanced no-op
+            }
+            break;
+        }
+        case HtmlToken::EndTag: {
+            if (m_htmlTagStack.isEmpty())
+                break;
+            const QString open = m_htmlTagStack.takeLast();
+            if (open == QLatin1String("b") || open == QLatin1String("strong"))
+                m_span.strong = false;
+            else if (open == QLatin1String("i") || open == QLatin1String("em"))
+                m_span.em = false;
+            else if (open == QLatin1String("code") || open == QLatin1String("tt"))
+                m_span.code = false;
+            else if (open == QLatin1String("sub"))
+                m_span.sub = (std::max)(0, m_span.sub - 1);
+            else if (open == QLatin1String("sup"))
+                m_span.sup = (std::max)(0, m_span.sup - 1);
+            else if (open == QLatin1String("kbd")) {
+                m_inKbd = false;
+                startBlock();
+                insertChip(m_kbdBuffer.trimmed(), MarkdownBuilder::ChipKind::Key);
+                m_kbdBuffer.clear();
+            } else if (open == QLatin1String("a"))
+                m_linkHref.clear();
+            break;
+        }
+        }
+    }
+}
+
+void Builder::insertSummary(const QString &html)
+{
+    // QTextDocument cannot collapse, so <summary> becomes a marked bold line.
+    setPendingBlock(paragraphFormat(), bodyCharFormat(), false);
+    startBlock();
+
+    QTextCharFormat marker = bodyCharFormat();
+    marker.setForeground(m_style.theme.markdown.weakText);
+    m_cursor.insertText(QStringLiteral("\u25B8 "), marker);
+
+    QTextCharFormat title = bodyCharFormat();
+    title.setFontWeight(QFont::Bold);
+    // The inner content is usually inline HTML; keep its text.
+    QString inner;
+    for (const HtmlToken &token : parseHtmlFragment(html)) {
+        if (token.kind == HtmlToken::Text)
+            inner += token.text;
+    }
+    m_cursor.insertText(inner.trimmed(), title);
+}
+
+void Builder::renderHtmlBlock(const QString &html)
+{
+    const QVector<HtmlToken> tokens = parseHtmlFragment(html);
+    bool handled = false;
+
+    for (int i = 0; i < tokens.size(); ++i) {
+        const HtmlToken &token = tokens[i];
+
+        if (token.kind == HtmlToken::StartTag && token.name == QLatin1String("summary")) {
+            handled = true;
+            QString inner;
+            int j = i + 1;
+            for (; j < tokens.size(); ++j) {
+                if (tokens[j].kind == HtmlToken::EndTag && tokens[j].name == QLatin1String("summary"))
+                    break;
+                if (tokens[j].kind == HtmlToken::Text)
+                    inner += tokens[j].text;
+            }
+            insertSummary(inner);
+            i = j;
+            continue;
+        }
+
+        if (token.kind == HtmlToken::StartTag && token.name == QLatin1String("table")) {
+            handled = true;
+            // Collect the whole table, then render it as a QTextTable.
+            QVector<QVector<QString>> rows;
+            QVector<bool> headerRow;
+            QVector<QString> currentRow;
+            bool currentHeader = false;
+            bool inCell = false;
+            QString cellText;
+            for (int j = i + 1; j < tokens.size(); ++j) {
+                const HtmlToken &t = tokens[j];
+                if (t.kind == HtmlToken::EndTag && t.name == QLatin1String("table"))
+                    break;
+                if (t.kind == HtmlToken::StartTag && t.name == QLatin1String("tr")) {
+                    currentRow.clear();
+                    currentHeader = false;
+                    continue;
+                }
+                if (t.kind == HtmlToken::EndTag && t.name == QLatin1String("tr") && !currentRow.isEmpty()) {
+                    rows.append(currentRow);
+                    headerRow.append(currentHeader);
+                    continue;
+                }
+                if (t.kind == HtmlToken::StartTag && (t.name == QLatin1String("td") || t.name == QLatin1String("th"))) {
+                    inCell = true;
+                    cellText.clear();
+                    if (t.name == QLatin1String("th"))
+                        currentHeader = true;
+                    continue;
+                }
+                if (t.kind == HtmlToken::EndTag && (t.name == QLatin1String("td") || t.name == QLatin1String("th"))) {
+                    if (inCell)
+                        currentRow.append(cellText.trimmed());
+                    inCell = false;
+                    continue;
+                }
+                if (inCell && t.kind == HtmlToken::Text)
+                    cellText += t.text;
+            }
+            if (!rows.isEmpty()) {
+                if (!m_firstBlock)
+                    m_cursor.insertBlock(QTextBlockFormat(), bodyCharFormat());
+                m_firstBlock = false;
+                unsigned columns = 0;
+                for (const QVector<QString> &row : rows)
+                    columns = (std::max)(columns, unsigned(row.size()));
+                QTextTableFormat format;
+                format.setBorder(1);
+                format.setBorderBrush(QBrush(m_style.theme.markdown.tableBorder));
+                format.setCellSpacing(0);
+                format.setCellPadding(8);
+                QVector<QTextLength> constraints;
+                for (unsigned column = 0; column < columns; ++column)
+                    constraints.append(QTextLength(QTextLength::PercentageLength, 100.0 / columns));
+                format.setColumnWidthConstraints(constraints);
+                QTextTable *table = m_cursor.insertTable(int(rows.size()), int(columns), format);
+                for (int row = 0; row < rows.size(); ++row) {
+                    for (int column = 0; column < rows[row].size(); ++column) {
+                        QTextCursor cellCursor = table->cellAt(row, column).firstCursorPosition();
+                        cellCursor.insertText(rows[row][column], bodyCharFormat());
+                        if (headerRow[row]) {
+                            QTextTableCellFormat cellFormat;
+                            cellFormat.setBackground(m_style.theme.markdown.tableHeaderBackground);
+                            cellFormat.setFontWeight(QFont::Bold);
+                            table->cellAt(row, column).setFormat(cellFormat);
+                        }
+                    }
+                }
+                m_cursor = QTextCursor(m_document);
+                m_cursor.movePosition(QTextCursor::End);
+            }
+            // Skip past the table.
+            for (int j = i + 1; j < tokens.size(); ++j) {
+                if (tokens[j].kind == HtmlToken::EndTag && tokens[j].name == QLatin1String("table")) {
+                    i = j;
+                    break;
+                }
+            }
+            continue;
+        }
+
+        if ((token.kind == HtmlToken::StartTag || token.kind == HtmlToken::SelfClosingTag) && token.name == QLatin1String("img")) {
+            handled = true;
+            startBlock();
+            insertImageElement(htmlAttribute(token, QStringLiteral("src")), htmlAttribute(token, QStringLiteral("alt")));
+            continue;
+        }
+
+        if (token.kind == HtmlToken::StartTag && token.name == QLatin1String("div")) {
+            handled = true;
+            if (htmlAttribute(token, QStringLiteral("align")).compare(QLatin1String("center"), Qt::CaseInsensitive) == 0)
+                ++m_htmlCenterDepth;
+            continue;
+        }
+        if (token.kind == HtmlToken::EndTag && token.name == QLatin1String("div")) {
+            handled = true;
+            if (m_htmlCenterDepth > 0)
+                --m_htmlCenterDepth;
+            continue;
+        }
+
+        if (token.kind == HtmlToken::StartTag && token.name == QLatin1String("details")) {
+            handled = true;
+            ++m_htmlDetailsDepth;
+            continue;
+        }
+        if (token.kind == HtmlToken::EndTag && token.name == QLatin1String("details")) {
+            handled = true;
+            if (m_htmlDetailsDepth > 0)
+                --m_htmlDetailsDepth;
+            continue;
+        }
+    }
+
+    // Nothing we understand: keep the raw HTML visible rather than dropping it.
+    if (!handled) {
+        const QString raw = html.trimmed();
+        if (!raw.isEmpty()) {
+            if (!m_firstBlock)
+                m_cursor.insertBlock(paragraphFormat(), bodyCharFormat());
+            m_firstBlock = false;
+            QTextCharFormat format = codeCharFormat();
+            format.setForeground(m_style.theme.markdown.weakText);
+            m_cursor.insertText(raw, format);
+        }
+    }
+}
+
+void Builder::renderCallout(QTextFrame *quote)
+{
+    auto *table = qobject_cast<QTextTable *>(quote);
+    if (!table)
+        return;
+
+    QTextTableCell cell = table->cellAt(0, 0);
+    const QTextBlock first = cell.firstCursorPosition().block();
+    static const QRegularExpression pattern(QStringLiteral("^\\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\]\\s*"), QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = pattern.match(first.text());
+    if (!match.hasMatch())
+        return;
+
+    const QString type = match.captured(1).toUpper();
+    QColor color;
+    QString label;
+    if (type == QLatin1String("TIP")) {
+        color = m_style.theme.markdown.taskDone;
+        label = QStringLiteral("Tip");
+    } else if (type == QLatin1String("IMPORTANT")) {
+        color = m_style.theme.syntax.annotation;
+        label = QStringLiteral("Important");
+    } else if (type == QLatin1String("WARNING")) {
+        color = m_style.theme.syntax.warning;
+        label = QStringLiteral("Warning");
+    } else if (type == QLatin1String("CAUTION")) {
+        color = m_style.theme.syntax.error;
+        label = QStringLiteral("Caution");
+    } else {
+        color = m_style.theme.markdown.link;
+        label = QStringLiteral("Note");
+    }
+
+    // Replace the [!TYPE] marker with a coloured label; keep any text that
+    // followed it on the same paragraph (a soft break) as a new block.
+    const QString rest = first.text().mid(match.capturedLength(0)).trimmed();
+    QTextCursor cursor(m_document);
+    cursor.setPosition(first.position());
+    cursor.setPosition(first.position() + first.length() - 1, QTextCursor::KeepAnchor);
+    QTextCharFormat labelFormat;
+    labelFormat.setFontWeight(QFont::Bold);
+    labelFormat.setForeground(color);
+    cursor.insertText(label, labelFormat);
+    if (!rest.isEmpty()) {
+        cursor.insertBlock(paragraphFormat(), bodyCharFormat());
+        cursor.insertText(rest, bodyCharFormat());
+    }
+
+    // Tint the bar and give the box a faint wash of the type colour.
+    QTextTableCellFormat cellFormat = cell.format().toTableCellFormat();
+    cellFormat.setLeftBorderBrush(color);
+    QColor wash = color;
+    wash.setAlpha(20);
+    cellFormat.setBackground(wash);
+    cell.setFormat(cellFormat);
 }
 
 } // namespace

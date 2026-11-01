@@ -5,6 +5,7 @@
 
 #include "core/FontManager.h"
 #include "viewer/CheckboxObjectHandler.h"
+#include "viewer/ChipObjectHandler.h"
 #include "viewer/CodeHighlighter.h"
 #include "viewer/GifObjectHandler.h"
 
@@ -35,6 +36,7 @@ MarkdownView::MarkdownView(QWidget *parent)
     : QTextBrowser(parent)
     , m_gifHandler(new GifObjectHandler(document(), this))
     , m_checkboxHandler(new CheckboxObjectHandler(this))
+    , m_chipHandler(new ChipObjectHandler(this))
     , m_codeHighlighter(new CodeHighlighter)
 {
     setOpenExternalLinks(true);
@@ -43,6 +45,7 @@ MarkdownView::MarkdownView(QWidget *parent)
 
     document()->documentLayout()->registerHandler(MarkdownBuilder::gifObjectType, m_gifHandler);
     document()->documentLayout()->registerHandler(MarkdownBuilder::checkboxObjectType, m_checkboxHandler);
+    document()->documentLayout()->registerHandler(MarkdownBuilder::chipObjectType, m_chipHandler);
 
     m_renderTimer = new QTimer(this);
     m_renderTimer->setSingleShot(true);
@@ -71,6 +74,7 @@ void MarkdownView::setRenderStyle(const RenderStyle &style)
     m_style = style;
     m_gifHandler->setMaximumWidth(style.maxImageWidth);
     m_checkboxHandler->setColors(style.theme.markdown.weakText, style.theme.markdown.weakText, style.theme.palette.color(QPalette::Base));
+    m_chipHandler->setColors(style.theme.markdown.codeBackground, style.theme.markdown.tableBorder, style.theme.markdown.weakText);
     m_codeHighlighter->setThemeDefinition(style.theme);
     setPalette(style.theme.palette);
     updateContentMargins();

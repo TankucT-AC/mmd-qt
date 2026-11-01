@@ -13,6 +13,7 @@ class QTimer;
 class GifObjectHandler;
 class CodeHighlighter;
 class CheckboxObjectHandler;
+class ChipObjectHandler;
 
 /*
  * Preview pane: renders markdown source into its QTextDocument and keeps the
@@ -89,6 +90,7 @@ private:
     QTimer *m_renderTimer = nullptr;
     GifObjectHandler *m_gifHandler = nullptr;
     CheckboxObjectHandler *m_checkboxHandler = nullptr;
+    ChipObjectHandler *m_chipHandler = nullptr;
     std::unique_ptr<CodeHighlighter> m_codeHighlighter;
 
     QTextFrame *m_hoveredFrame = nullptr;

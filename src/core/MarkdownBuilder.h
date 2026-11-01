@@ -57,6 +57,8 @@ public:
         gifPathKey,
         checkboxCheckedKey,
         checkboxSizeKey,
+        chipTextKey,
+        chipKindKey,
     };
 
     // QTextCharFormat object type used for animated images. The viewer
@@ -64,6 +66,14 @@ public:
     static constexpr int gifObjectType = QTextFormat::UserObject + 1;
     // Object type used for task-list checkboxes; the viewer draws them.
     static constexpr int checkboxObjectType = QTextFormat::UserObject + 2;
+    // Object type used for inline "chips": remote-image badges and <kbd> keys.
+    static constexpr int chipObjectType = QTextFormat::UserObject + 3;
+
+    // Kind of an inline chip, stored under chipKindKey.
+    enum class ChipKind : int {
+        Badge, // a remote <img> rendered as its alt text
+        Key, // a <kbd> keycap
+    };
 
     // Parses markdown and rebuilds target as a rendered document.
     // Returns false only when the parser itself fails.

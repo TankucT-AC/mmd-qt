@@ -62,6 +62,8 @@ native.
 | **Code highlighting** | Fenced code blocks are highlighted per language by KDE's KSyntaxHighlighting, coloured from a theme-matched palette. Markdown itself is highlighted in the source pane. |
 | **Images & animation** | Images resolve relative to the document; PNG, JPEG, WebP, **SVG** (rendered crisp and antialiased) and **animated GIF** all display. |
 | **GFM** | Tables, task lists, strikethrough and autolinks. |
+| **HTML inserts** | A tolerant subset of the HTML found in real READMEs — centred hero blocks, `<details>`/`<summary>`, tables, badges as offline chips, inline tags and `[!NOTE]` callouts. |
+| **Copy code** | Hover a fenced block to reveal a copy button; one click puts its text on the clipboard. |
 | **Themes** | Light, Dark, **Follow System** (reads the desktop's own colour scheme — e.g. a KDE Plasma scheme, as Dolphin does) and Custom. Themes are data: any theme loads from JSON, and discovered system schemes are listed in the menu. The choice is remembered across runs. |
 | **Files** | Open, save, and follow external changes on disk — including the atomic-replace pattern most editors use. |
 

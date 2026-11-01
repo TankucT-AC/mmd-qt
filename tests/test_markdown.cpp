@@ -31,6 +31,12 @@ private slots:
     void headingSixUsesWeakColor();
     void codeBlockIsOneContinuousRegion();
     void wrappedCodeLineStaysInsideTheBox();
+    void htmlDivCentersContent();
+    void htmlSummaryIsRendered();
+    void htmlInlineTagsAreApplied();
+    void htmlKbdAndRemoteImageBecomeChips();
+    void calloutIsRendered();
+    void readmeRendersWithoutLiteralHtml();
     void boldEmphasisInParagraph();
     void inlineCodeSpan();
     void fencedCodeBlockCarriesLanguage();
@@ -526,6 +532,103 @@ void MarkdownTest::missingImageShowsPlaceholder()
     render(&document, QStringLiteral("![alt](missing.png)\n"), QStringLiteral("/nonexistent"));
     const QString all = document.toPlainText();
     QVERIFY(all.contains(QStringLiteral("missing.png")));
+}
+
+void MarkdownTest::htmlDivCentersContent()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("<div align=\"center\">\n\n# Title\n\n</div>\n"));
+
+    QTextBlock block;
+    for (QTextBlock candidate = document.firstBlock(); candidate.isValid(); candidate = candidate.next()) {
+        if (candidate.text() == QStringLiteral("Title"))
+            block = candidate;
+    }
+    QVERIFY(block.isValid());
+    QCOMPARE(block.blockFormat().alignment(), Qt::AlignHCenter);
+}
+
+void MarkdownTest::htmlSummaryIsRendered()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("<details>\n<summary><strong>Table of contents</strong></summary>\n\n- one\n\n</details>\n"));
+
+    const QString text = document.toPlainText();
+    QVERIFY(text.contains(QStringLiteral("Table of contents")));
+    QVERIFY(text.contains(QString(QChar(0x25B8)))); // the ▸ marker
+    QVERIFY(!text.contains(QStringLiteral("<summary")));
+}
+
+void MarkdownTest::htmlInlineTagsAreApplied()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("x <b>BOLD</b> y <code>CODE</code> z <sub>SUB</sub>\n"));
+
+    const QTextBlock block = document.firstBlock();
+    QVERIFY(block.isValid());
+    QCOMPARE(formatAt(block, block.text().indexOf(QStringLiteral("BOLD"))).fontWeight(), int(QFont::Bold));
+    QCOMPARE(formatAt(block, block.text().indexOf(QStringLiteral("CODE"))).background().color(), ThemeDefinition::light().markdown.codeBackground);
+    QCOMPARE(formatAt(block, block.text().indexOf(QStringLiteral("SUB"))).verticalAlignment(), QTextCharFormat::AlignSubScript);
+}
+
+void MarkdownTest::htmlKbdAndRemoteImageBecomeChips()
+{
+    auto chipTexts = [](QTextDocument &doc) {
+        QStringList out;
+        for (QTextBlock block = doc.firstBlock(); block.isValid(); block = block.next()) {
+            for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+                const QTextCharFormat format = it.fragment().charFormat();
+                if (format.objectType() == MarkdownBuilder::chipObjectType)
+                    out << format.property(MarkdownBuilder::chipTextKey).toString();
+            }
+        }
+        return out;
+    };
+
+    QTextDocument keyboard;
+    render(&keyboard, QStringLiteral("press <kbd>Ctrl</kbd> now\n"));
+    QCOMPARE(chipTexts(keyboard), QStringList{QStringLiteral("Ctrl")});
+
+    QTextDocument badge;
+    render(&badge, QStringLiteral("x <img src=\"https://img.shields.io/badge.svg\" alt=\"build: passing\"> y\n"));
+    QCOMPARE(chipTexts(badge), QStringList{QStringLiteral("build: passing")});
+}
+
+void MarkdownTest::calloutIsRendered()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("> [!NOTE]\n> body text\n"));
+
+    bool found = false;
+    for (QTextFrame *frame : document.rootFrame()->childFrames()) {
+        auto *table = qobject_cast<QTextTable *>(frame);
+        if (!table)
+            continue;
+        const QTextTableCell cell = table->cellAt(0, 0);
+        if (cell.firstCursorPosition().block().text() != QStringLiteral("Note"))
+            continue;
+        QCOMPARE(cell.format().toTableCellFormat().leftBorderBrush().color(), ThemeDefinition::light().markdown.link);
+        found = true;
+    }
+    QVERIFY(found);
+}
+
+void MarkdownTest::readmeRendersWithoutLiteralHtml()
+{
+    QFile file(QStringLiteral(MMD_SOURCE_DIR "/README.md"));
+    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.errorString()));
+
+    QTextDocument document;
+    render(&document, QString::fromUtf8(file.readAll()), QStringLiteral(MMD_SOURCE_DIR));
+
+    const QString text = document.toPlainText();
+    QVERIFY(text.contains(QStringLiteral("mmd-qt")));
+    QVERIFY(text.contains(QStringLiteral("\u25B8 Table of contents")));
+    // The hero's raw markup must be gone (the README documents the tags as
+    // inline code, so check the actual markup, not the tag names).
+    QVERIFY(!text.contains(QStringLiteral("<div")));
+    QVERIFY(!text.contains(QStringLiteral("<summary><strong>")));
+    QVERIFY(!text.contains(QStringLiteral("<img")));
 }
 
 QTEST_MAIN(MarkdownTest)

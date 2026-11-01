@@ -114,7 +114,7 @@ resources. A `FontSet::System` option falls back to the platform fonts. Heading
 sizes follow a modular scale (base 12 pt, ratio 1.2), so the hierarchy stays
 proportional if the base changes — no magic numbers scattered across files.
 
-## 8. Images and animations
+## 8. Images, HTML inserts and animations
 
 **Animated GIF** plays in place (`GifObjectHandler`, a `QTextObjectInterface`
 driving a `QMovie`). **Static images** (PNG, JPEG, WebP) are drawn by the text
@@ -123,6 +123,26 @@ fly with `QSvgRenderer` (Qt6::Svg) at the *device* pixel size and with
 `Antialiasing` enabled, then handed to the document as an image resource — that
 keeps vector art crisp and smooth instead of showing stair-stepped edges. Any
 other image is scaled down to `RenderStyle::maxImageWidth`.
+
+**HTML inserts.** Real READMEs are full of HTML, so the renderer understands a
+small, tolerant subset — enough to make a GitHub README look right, without a
+web engine (`QTextDocument::setHtml` is deliberately *not* used: it drags in its
+own fonts and colours and would break the theme). `HtmlFragment` tokenizes the
+raw HTML; `MarkdownBuilder` renders:
+
+| Construct | Rendering |
+|---|---|
+| `<div align="center">` … `</div>` | every block between them is centred (a persistent context, since the tags arrive as separate HTML blocks) |
+| `<details>` / `<summary>` | a marked, bold title line (a `QTextDocument` cannot collapse) |
+| `<table>` / `<tr>` / `<th>` / `<td>` | a real `QTextTable` |
+| `<img>` (remote) | an offline **chip** with the `alt` text — no network |
+| `<b>`, `<i>`, `<code>`, `<a>`, `<sub>`, `<sup>`, `<br>`, `<kbd>` | the matching span styles (`<kbd>` becomes a chip) |
+| `> [!NOTE]` … `[!CAUTION]` | a coloured callout bar and label |
+| anything unknown | kept visible as raw text |
+
+**Code boxes** get a **copy button**: hovering reveals it in the top-right
+corner, and clicking copies the block's plain text (`MarkdownView` draws it as a
+`paintEvent` overlay and hit-tests in the mouse handlers).
 
 ## 9. Syntax highlighting
 
