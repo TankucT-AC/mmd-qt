@@ -30,6 +30,10 @@ opens instantly and re-renders as you type.
   changes scheme). Themes are data: any theme can be loaded from a JSON file.
 - **GFM** — tables, task lists, strikethrough, autolinks and footnotes.
 
+Curious what it looks like? Open [`samples/feature-showcase.md`](samples/feature-showcase.md)
+— one document that exercises every feature above, with real image assets next
+to it.
+
 ## Building
 
 Requirements:
