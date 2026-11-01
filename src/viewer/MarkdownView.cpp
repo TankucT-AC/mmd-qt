@@ -88,6 +88,10 @@ void MarkdownView::setRenderStyle(const RenderStyle &style)
     m_checkboxHandler->setColors(style.theme.markdown.weakText, style.theme.markdown.weakText, style.theme.palette.color(QPalette::Base));
     m_chipHandler->setColors(style.theme.markdown.codeBackground, style.theme.markdown.tableBorder, style.theme.markdown.weakText);
     m_mathHandler->setBodyFont(style.fonts.bodyFont());
+    // Formulas are typeset at the text's em, which the document measures in
+    // device-independent pixels -- not the font's points.
+    const QFont bodyFont = style.fonts.bodyFont();
+    m_mathHandler->setEmSize(bodyFont.pixelSize() > 0 ? qreal(bodyFont.pixelSize()) : bodyFont.pointSizeF() * logicalDpiY() / 72.0);
     m_mathHandler->setColor(style.theme.palette.color(QPalette::Text));
     m_mathHandler->setDevicePixelRatio(devicePixelRatioF());
     m_codeHighlighter->setThemeDefinition(style.theme);

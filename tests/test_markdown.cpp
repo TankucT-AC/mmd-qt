@@ -60,6 +60,7 @@ private slots:
     void missingImageShowsPlaceholder();
     void inlineMathBecomesAnObject();
     void displayMathIsMarkedAndCentred();
+    void displayMathDoesNotStealTheNeighbourParagraph();
     void escapedDollarStaysLiteral();
     void mathInsideCodeStaysLiteral();
 
@@ -755,6 +756,43 @@ void MarkdownTest::displayMathIsMarkedAndCentred()
         return;
     }
     QFAIL("no block carries the display formula");
+}
+
+void MarkdownTest::displayMathDoesNotStealTheNeighbourParagraph()
+{
+    // md4c glues a standalone $$...$$ to the paragraph before it: its lazy-math
+    // rule swallows the blank line, so the display span arrives inside the text
+    // paragraph. The builder must split it off -- the text keeps its own,
+    // left-aligned block, and the formula gets a centred one.
+    QTextDocument document;
+    render(&document, QStringLiteral("Text line before.\n\n$$\nf(x)\n$$\n\nText line after.\n"));
+
+    int index = 0;
+    int mathBlock = -1;
+    int textBlock = -1;
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next(), ++index) {
+        const bool hasMath = block.text().contains(QChar::ObjectReplacementCharacter);
+        if (hasMath && mathBlock < 0)
+            mathBlock = index;
+        if (block.text().contains(QStringLiteral("Text line before.")))
+            textBlock = index;
+    }
+    QVERIFY2(mathBlock >= 0 && mathBlock != textBlock, "the display formula was not split into its own block");
+
+    const QTextBlock formula = [&document, mathBlock] {
+        QTextBlock block = document.firstBlock();
+        for (int i = 0; i < mathBlock; ++i)
+            block = block.next();
+        return block;
+    }();
+    QVERIFY2(formula.blockFormat().alignment() & Qt::AlignHCenter, "the formula block is not centred");
+
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+        if (block.text().contains(QStringLiteral("Text line before.")))
+            QVERIFY2(!(block.blockFormat().alignment() & Qt::AlignHCenter), "the neighbour paragraph was centred instead");
+        if (block.text().contains(QStringLiteral("Text line after.")))
+            QVERIFY2(!(block.blockFormat().alignment() & Qt::AlignHCenter), "the trailing paragraph was centred instead");
+    }
 }
 
 void MarkdownTest::escapedDollarStaysLiteral()

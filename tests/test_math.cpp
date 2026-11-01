@@ -34,6 +34,7 @@ private slots:
     void glyphsStayInsideTheirLayoutBox();
     void handlerDrawsTheFormula();
     void handlerFallsBackToSourceText();
+    void handlerTypesetsAtTheTextSize();
     void staysFastForManyFormulas();
 
 private:
@@ -41,6 +42,7 @@ private:
     static int inkColumnCount(const QImage &image);
     static int firstInkColumn(const QImage &image);
     static int lastInkColumn(const QImage &image);
+    static int inkHeight(const QImage &image);
 };
 
 bool MathTest::hasInk(const QImage &image)
@@ -174,6 +176,23 @@ int MathTest::lastInkColumn(const QImage &image)
     return -1;
 }
 
+int MathTest::inkHeight(const QImage &image)
+{
+    // Both images in this comparison are drawn black on white, so a colour test
+    // is what works for either (the formula bitmap is otherwise transparent).
+    const QRgb white = QColor(Qt::white).rgb();
+    int top = image.height();
+    int bottom = -1;
+    for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x)
+            if (image.pixel(x, y) != white) {
+                top = qMin(top, y);
+                bottom = qMax(bottom, y);
+                break;
+            }
+    return bottom < top ? 0 : bottom - top + 1;
+}
+
 void MathTest::blankRenderFallsBackToNoImage()
 {
     MathRenderer &renderer = MathRenderer::instance();
@@ -212,19 +231,6 @@ void MathTest::rendersAGalleryOfFormulas()
         const QImage image = renderer.image(formula, true, 16, QColor(Qt::black), 1.0);
         QVERIFY2(!image.isNull(), qPrintable(QStringLiteral("no image for %1").arg(formula)));
         QVERIFY2(hasInk(image), qPrintable(QStringLiteral("nothing drawn for %1").arg(formula)));
-
-        // Temporary: dump the gallery for eyeballing when asked to.
-        if (qEnvironmentVariableIsSet("MMD_MATH_GALLERY_DIR")) {
-            const QString dir = qEnvironmentVariable("MMD_MATH_GALLERY_DIR");
-            QDir().mkpath(dir);
-            const QString stem = QString(formula).remove(QRegularExpression(QStringLiteral("[^A-Za-z0-9]"))).left(20);
-            QImage overWhite(image.size(), QImage::Format_ARGB32_Premultiplied);
-            overWhite.fill(Qt::white);
-            QPainter compositor(&overWhite);
-            compositor.drawImage(0, 0, image);
-            compositor.end();
-            overWhite.save(QStringLiteral("%1/%2.png").arg(dir, stem));
-        }
     }
 }
 
@@ -319,6 +325,57 @@ void MathTest::glyphsStayInsideTheirLayoutBox()
         QVERIFY2(firstInkColumn(image) >= 3, qPrintable(QStringLiteral("ink overflows the left edge: %1").arg(formula)));
         QVERIFY2(lastInkColumn(image) <= image.width() - 2, qPrintable(QStringLiteral("ink overflows the right edge: %1").arg(formula)));
     }
+}
+
+void MathTest::handlerTypesetsAtTheTextSize()
+{
+    // A formula must be typeset at the size of the surrounding text: it is the
+    // object's whole job to blend in. Comparing a lone "H" from the formula
+    // with the same letter from the text font, on the same device, catches a
+    // formula set at the wrong em size without hard-coding any font metric.
+    MathObjectHandler handler;
+    QFont body;
+    body.setPointSizeF(12);
+    handler.setBodyFont(body);
+    // What MarkdownView passes: the body font's em in device-independent
+    // pixels, the unit the document layout measures in.
+    handler.setEmSize(body.pointSizeF() * 96.0 / 72.0);
+    handler.setColor(QColor(Qt::black));
+    handler.setDevicePixelRatio(1.0);
+
+    QTextDocument document;
+    QTextCharFormat format;
+    format.setObjectType(MarkdownBuilder::mathObjectType);
+    format.setProperty(MarkdownBuilder::mathSourceKey, QStringLiteral("H"));
+    format.setProperty(MarkdownBuilder::mathDisplayKey, false);
+    QTextCursor(&document).insertText(QString(QChar::ObjectReplacementCharacter), format);
+
+    const QSizeF size = handler.intrinsicSize(&document, 0, format);
+    QVERIFY(size.height() > 0);
+
+    QImage image(int(size.width()) + 4, int(size.height()) + 4, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    handler.drawObject(&painter, QRectF(2, 2, size.width(), size.height()), &document, 0, format);
+    painter.end();
+
+    // Reference: the same letter drawn by the text font. Inter and Computer
+    // Modern have slightly different cap-height ratios, so the two agree within
+    // about a tenth when the sizes match -- and are a fifth apart when the
+    // formula is set at two thirds of the text size.
+    QImage reference(80, 60, QImage::Format_ARGB32_Premultiplied);
+    reference.fill(Qt::white);
+    {
+        QPainter referencePainter(&reference);
+        referencePainter.setFont(body);
+        referencePainter.drawText(QPointF(10, 35), QStringLiteral("H"));
+    }
+
+    const int formulaInk = inkHeight(image);
+    const int textInk = inkHeight(reference);
+    QVERIFY(formulaInk > 0 && textInk > 0);
+    QVERIFY2(qAbs(formulaInk - textInk) <= qRound(textInk * 0.12),
+             qPrintable(QStringLiteral("formula is %1px tall, the text is %2px").arg(formulaInk).arg(textInk)));
 }
 
 void MathTest::staysFastForManyFormulas()

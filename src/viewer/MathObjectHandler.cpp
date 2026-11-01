@@ -12,15 +12,6 @@
 #include <QPen>
 #include <QTextFormat>
 
-namespace
-{
-
-// The point size a formula is typeset at when the body font carries none
-// (QFont reports -1 for pixel-size fonts).
-constexpr qreal kFallbackPointSize = 12.0;
-
-} // namespace
-
 MathObjectHandler::MathObjectHandler(QObject *parent)
     : QObject(parent)
 {
@@ -29,6 +20,12 @@ MathObjectHandler::MathObjectHandler(QObject *parent)
 void MathObjectHandler::setBodyFont(const QFont &font)
 {
     m_bodyFont = font;
+}
+
+void MathObjectHandler::setEmSize(qreal pixels)
+{
+    if (pixels > 0)
+        m_emSize = pixels;
 }
 
 void MathObjectHandler::setColor(const QColor &color)
@@ -59,8 +56,7 @@ bool MathObjectHandler::isDisplay(const QTextFormat &format) const
 
 QImage MathObjectHandler::bitmapFor(const QTextFormat &format) const
 {
-    const qreal pointSize = m_bodyFont.pointSizeF() > 0 ? m_bodyFont.pointSizeF() : kFallbackPointSize;
-    return MathRenderer::instance().image(sourceOf(format), isDisplay(format), pointSize, m_color, m_devicePixelRatio);
+    return MathRenderer::instance().image(sourceOf(format), isDisplay(format), m_emSize, m_color, m_devicePixelRatio);
 }
 
 QSizeF MathObjectHandler::sourceTextSize(const QString &source) const

@@ -32,6 +32,9 @@ public:
     explicit MathObjectHandler(QObject *parent = nullptr);
 
     void setBodyFont(const QFont &font);
+    // Em size the formulas are typeset at, in device-independent pixels -- the
+    // unit the document layout works in. Derived from the body font by the view.
+    void setEmSize(qreal pixels);
     void setColor(const QColor &color);
     void setDevicePixelRatio(qreal ratio);
 
@@ -47,4 +50,6 @@ private:
     QFont m_bodyFont;
     QColor m_color;
     qreal m_devicePixelRatio = 1.0;
+    // 12pt at 96dpi until the view says otherwise.
+    qreal m_emSize = 16.0;
 };

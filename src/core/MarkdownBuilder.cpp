@@ -1188,15 +1188,30 @@ void Builder::insertMathElement(const QString &tex, bool display)
     format.setObjectType(MarkdownBuilder::mathObjectType);
     format.setProperty(MarkdownBuilder::mathSourceKey, source);
     format.setProperty(MarkdownBuilder::mathDisplayKey, display);
-    m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+    const QString object = QString(QChar::ObjectReplacementCharacter);
 
-    // A display formula conventionally stands centred on its own line: $$...$$
-    // written on its own lines produces a block carrying nothing but the object.
-    if (display) {
-        QTextBlockFormat centre = m_cursor.blockFormat();
-        centre.setAlignment(Qt::AlignHCenter);
-        m_cursor.setBlockFormat(centre);
+    if (!display) {
+        m_cursor.insertText(object, format);
+        return;
     }
+
+    // md4c glues a standalone $$...$$ to the paragraph before it: its lazy-math
+    // rule swallows the blank line, so the span often arrives inside a block
+    // that already carries text. Split it off -- the formula gets a centred
+    // block of its own instead of centring somebody else's paragraph.
+    QTextBlockFormat centre = paragraphFormat();
+    centre.setAlignment(Qt::AlignHCenter);
+
+    if (m_cursor.block().length() > 1) {
+        m_pending = PendingBlock{}; // the block break is centred, nothing pending
+        m_cursor.insertBlock(centre, m_blockCharFormat);
+    } else {
+        // The formula opens a fresh block: make that block the centred one.
+        setPendingBlock(centre, m_blockCharFormat, false);
+        startBlock();
+    }
+
+    m_cursor.insertText(object, format);
 }
 
 void Builder::insertChip(const QString &text, MarkdownBuilder::ChipKind kind)
