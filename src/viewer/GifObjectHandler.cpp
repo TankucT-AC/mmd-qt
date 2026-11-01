@@ -27,10 +27,6 @@ QMovie *GifObjectHandler::movieFor(const QString &path)
         return it.value();
 
     auto *movie = new QMovie(path, QByteArray(), this);
-    const QSize natural = movie->currentPixmap().size();
-    if (m_maximumWidth > 0 && natural.width() > m_maximumWidth) {
-        movie->setScaledSize(natural.scaled(m_maximumWidth, natural.height(), Qt::KeepAspectRatio));
-    }
     m_movies.insert(path, movie);
 
     connect(movie, &QMovie::frameChanged, this, [this, path] {
@@ -52,7 +48,12 @@ QSizeF GifObjectHandler::intrinsicSize(QTextDocument *document, int posInDocumen
 
     // Starting the movie here is what makes the first frame available for
     // measurement; drawObject then reuses the cached instance.
-    return movieFor(path)->currentPixmap().size();
+    const QSize natural = movieFor(path)->currentPixmap().size();
+    if (natural.isEmpty())
+        return QSizeF();
+    if (m_maximumWidth > 0 && natural.width() > m_maximumWidth)
+        return natural.scaled(m_maximumWidth, natural.height(), Qt::KeepAspectRatio);
+    return natural;
 }
 
 void GifObjectHandler::drawObject(QPainter *painter, const QRectF &rect, QTextDocument *document, int posInDocument, const QTextFormat &format)
@@ -63,7 +64,10 @@ void GifObjectHandler::drawObject(QPainter *painter, const QRectF &rect, QTextDo
 
     QMovie *movie = movieFor(path);
     m_positions.insert(path, posInDocument);
-    painter->drawPixmap(rect.toRect(), movie->currentPixmap());
+    const QPixmap frame = movie->currentPixmap();
+    if (frame.isNull())
+        return;
+    painter->drawPixmap(rect.toRect(), frame.scaled(rect.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
 bool GifObjectHandler::hasRunningAnimations() const
