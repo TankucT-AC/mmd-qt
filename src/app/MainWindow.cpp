@@ -22,7 +22,39 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSettings>
 #include <QSplitter>
+
+namespace
+{
+
+QString modeName(ThemeManager::Mode mode)
+{
+    switch (mode) {
+    case ThemeManager::Mode::Light:
+        return QStringLiteral("light");
+    case ThemeManager::Mode::Dark:
+        return QStringLiteral("dark");
+    case ThemeManager::Mode::Custom:
+        return QStringLiteral("custom");
+    case ThemeManager::Mode::System:
+        break;
+    }
+    return QStringLiteral("system");
+}
+
+ThemeManager::Mode modeFromName(const QString &name)
+{
+    if (name == QLatin1String("light"))
+        return ThemeManager::Mode::Light;
+    if (name == QLatin1String("dark"))
+        return ThemeManager::Mode::Dark;
+    if (name == QLatin1String("custom"))
+        return ThemeManager::Mode::Custom;
+    return ThemeManager::Mode::System;
+}
+
+} // namespace
 
 #include <array>
 
@@ -34,10 +66,16 @@ MainWindow::MainWindow(QWidget *parent)
     buildUi();
     buildMenus();
     connect(m_themes, &ThemeManager::themeChanged, this, &MainWindow::applyTheme);
+    connect(m_themes, &ThemeManager::modeChanged, this, [this](ThemeManager::Mode mode) {
+        if (QAction *action = m_themeModeActions.value(int(mode)))
+            action->setChecked(true);
+        persistThemeSettings();
+    });
     connect(m_file, &FileDocument::externallyChanged, this, &MainWindow::onExternalChange);
     connect(m_editor->document(), &QTextDocument::modificationChanged, this, &MainWindow::updateWindowTitle);
 
     applyTheme(m_themes->currentTheme());
+    restoreThemeSettings();
     updateWindowTitle();
     resize(1200, 800);
 }
@@ -154,6 +192,7 @@ void MainWindow::buildMenus()
                 m_themes->setMode(mode);
         });
         themeMenu->addAction(action);
+        m_themeModeActions.insert(int(entry.mode), action);
         if (entry.mode == ThemeManager::Mode::Custom) {
             m_customThemeAction = action;
             action->setEnabled(false); // enabled once a custom theme file is loaded
@@ -175,6 +214,7 @@ void MainWindow::buildMenus()
                     m_themes->setMode(ThemeManager::Mode::Custom);
                     m_customThemeAction->setEnabled(true);
                     m_customThemeAction->setChecked(true);
+                    persistThemeSettings();
                 }
             });
         }
@@ -303,6 +343,36 @@ void MainWindow::closeEvent(QCloseEvent *event)
         event->ignore();
 }
 
+void MainWindow::restoreThemeSettings()
+{
+    QSettings settings;
+
+    const QString customJson = settings.value(QStringLiteral("theme/custom")).toString();
+    if (!customJson.isEmpty()) {
+        const QJsonDocument document = QJsonDocument::fromJson(customJson.toUtf8());
+        if (document.isObject()) {
+            if (const std::optional<ThemeDefinition> theme = ThemeDefinition::fromJson(document.object())) {
+                m_themes->setCustomTheme(*theme);
+                m_customThemeAction->setEnabled(true);
+            }
+        }
+    }
+
+    const QString mode = settings.value(QStringLiteral("theme/mode")).toString();
+    if (!mode.isEmpty())
+        m_themes->setMode(modeFromName(mode));
+}
+
+void MainWindow::persistThemeSettings()
+{
+    QSettings settings;
+    settings.setValue(QStringLiteral("theme/mode"), modeName(m_themes->mode()));
+    if (m_themes->mode() == ThemeManager::Mode::Custom) {
+        const QJsonDocument document(m_themes->currentTheme().toJson());
+        settings.setValue(QStringLiteral("theme/custom"), QString::fromUtf8(document.toJson(QJsonDocument::Compact)));
+    }
+}
+
 void MainWindow::loadThemeFromFile()
 {
     const QString path = QFileDialog::getOpenFileName(this, tr("Load Theme"), QString(), tr("Theme files (*.json)"));
@@ -332,4 +402,5 @@ void MainWindow::loadThemeFromFile()
     m_themes->setMode(ThemeManager::Mode::Custom);
     m_customThemeAction->setEnabled(true);
     m_customThemeAction->setChecked(true);
+    persistThemeSettings();
 }

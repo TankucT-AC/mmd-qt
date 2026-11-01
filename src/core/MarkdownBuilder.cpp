@@ -276,6 +276,7 @@ bool Builder::run(const QString &markdown)
     parser.text = &onText;
 
     m_document->clear();
+    m_document->setIndentWidth(24); // ~2 spaces per list level
     m_cursor = QTextCursor(m_document);
     m_firstBlock = true;
     m_pending = PendingBlock{};
@@ -329,7 +330,7 @@ void Builder::startBlock()
     if (m_taskPending) {
         QTextCharFormat markerFormat = pending.baseCharFormat;
         const QFontMetricsF metrics(markerFormat.font());
-        const qreal side = qRound(metrics.height() * 0.8);
+        const qreal side = qRound(metrics.height() * 0.7);
         markerFormat.setObjectType(MarkdownBuilder::checkboxObjectType);
         markerFormat.setProperty(MarkdownBuilder::checkboxCheckedKey, m_taskDone);
         markerFormat.setProperty(MarkdownBuilder::checkboxSizeKey, side);
@@ -397,8 +398,8 @@ QTextCharFormat Builder::ruleCharFormat() const
 QTextBlockFormat Builder::paragraphFormat() const
 {
     QTextBlockFormat format;
-    format.setLineHeight(140, QTextBlockFormat::ProportionalHeight);
-    format.setBottomMargin(6);
+    format.setLineHeight(122, QTextBlockFormat::ProportionalHeight);
+    format.setBottomMargin(3);
     return format;
 }
 
@@ -407,24 +408,24 @@ QTextBlockFormat Builder::headingFormat(int level) const
     QTextBlockFormat format;
     switch (level) {
     case 1:
-        format.setTopMargin(20);
-        format.setBottomMargin(10);
+        format.setTopMargin(14);
+        format.setBottomMargin(5);
         break;
     case 2:
-        format.setTopMargin(18);
-        format.setBottomMargin(8);
-        break;
-    case 3:
-        format.setTopMargin(16);
-        format.setBottomMargin(6);
-        break;
-    case 6:
-        format.setTopMargin(10);
-        format.setBottomMargin(4);
-        break;
-    default:
         format.setTopMargin(12);
         format.setBottomMargin(4);
+        break;
+    case 3:
+        format.setTopMargin(10);
+        format.setBottomMargin(3);
+        break;
+    case 6:
+        format.setTopMargin(8);
+        format.setBottomMargin(2);
+        break;
+    default:
+        format.setTopMargin(8);
+        format.setBottomMargin(2);
         break;
     }
     format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Heading));
@@ -452,8 +453,8 @@ QTextFrameFormat Builder::codeFrameFormat(const QColor &background) const
     format.setBackground(background);
     format.setBorder(0);
     format.setPadding(8);
-    format.setTopMargin(8);
-    format.setBottomMargin(8);
+    format.setTopMargin(6);
+    format.setBottomMargin(6);
     return format;
 }
 
@@ -461,8 +462,8 @@ QTextBlockFormat Builder::ruleFormat() const
 {
     QTextBlockFormat format;
     format.setAlignment(Qt::AlignHCenter);
-    format.setTopMargin(8);
-    format.setBottomMargin(8);
+    format.setTopMargin(6);
+    format.setBottomMargin(6);
     format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Rule));
     return format;
 }
@@ -500,8 +501,8 @@ QTextFrame *Builder::pushQuote()
     cellFormat.setLeftBorderStyle(QTextFrameFormat::BorderStyle_Solid);
     cellFormat.setLeftBorderBrush(m_style.theme.markdown.quoteBar);
     cellFormat.setLeftPadding(14);
-    cellFormat.setTopPadding(4);
-    cellFormat.setBottomPadding(4);
+    cellFormat.setTopPadding(2);
+    cellFormat.setBottomPadding(2);
     table->cellAt(0, 0).setFormat(cellFormat);
 
     context.frame = table;

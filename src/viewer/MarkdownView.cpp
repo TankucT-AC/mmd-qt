@@ -9,6 +9,7 @@
 #include "viewer/GifObjectHandler.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -52,7 +53,30 @@ void MarkdownView::setRenderStyle(const RenderStyle &style)
     m_checkboxHandler->setColors(style.theme.markdown.weakText, style.theme.markdown.weakText, style.theme.palette.color(QPalette::Base));
     m_codeHighlighter->setThemeDefinition(style.theme);
     setPalette(style.theme.palette);
+    updateContentMargins();
     renderNow();
+}
+
+void MarkdownView::resizeEvent(QResizeEvent *event)
+{
+    QTextBrowser::resizeEvent(event);
+    // Setting the margins inside the resize handler has no effect until the
+    // next layout pass, so defer it to the event loop.
+    QTimer::singleShot(0, this, [this] {
+        updateContentMargins();
+    });
+}
+
+void MarkdownView::updateContentMargins()
+{
+    // Cap the text column and centre it: reserve equal margins on both sides.
+    int available = width();
+    if (const QScrollBar *bar = verticalScrollBar(); bar && bar->isVisible())
+        available -= bar->width();
+    available -= 2 * frameWidth();
+
+    const int margin = qMax(0, (available - m_style.maxContentWidth) / 2);
+    setViewportMargins(margin, 0, margin, 0);
 }
 
 const RenderStyle &MarkdownView::renderStyle() const

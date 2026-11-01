@@ -5,6 +5,7 @@
 
 #include "core/ThemeManager.h"
 
+#include <QHash>
 #include <QMainWindow>
 
 class QAction;
@@ -45,6 +46,8 @@ private:
     void buildMenus();
     void applyTheme(const ThemeDefinition &theme);
     void loadThemeFromFile();
+    void restoreThemeSettings();
+    void persistThemeSettings();
 
     void newFile();
     void openFileDialog();
@@ -63,4 +66,5 @@ private:
     QAction *m_toggleEditor = nullptr;
     QAction *m_toggleViewer = nullptr;
     QAction *m_customThemeAction = nullptr;
+    QHash<int, QAction *> m_themeModeActions;
 };

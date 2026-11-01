@@ -20,6 +20,9 @@ struct RenderStyle {
     FontManager fonts;
     QString baseDir;
     int maxImageWidth = 760;
+    // Maximum width of the rendered column; wider panes centre the content,
+    // like Zed, instead of stretching text across the whole window.
+    int maxContentWidth = 820;
 };
 
 /*

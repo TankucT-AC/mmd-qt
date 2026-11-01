@@ -27,6 +27,7 @@ private slots:
     void baseDirResolvesImages();
     void scrollSyncIsProportionalAndGuarded();
     void scrollSyncDoesNotLoop();
+    void contentIsCappedByMaxWidth();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -174,6 +175,20 @@ void ViewTest::scrollSyncDoesNotLoop()
     // One forward update only; the guard must prevent bouncing back.
     QCOMPARE(first.verticalScrollBar()->value(), 50);
     QCOMPARE(spy.count(), 1);
+}
+
+void ViewTest::contentIsCappedByMaxWidth()
+{
+    MarkdownView view;
+    view.resize(2000, 600); // much wider than the cap
+    view.show();
+    view.setRenderInterval(0);
+    view.setMarkdown(QStringLiteral("A paragraph long enough to occupy the column.\n"));
+
+    QTRY_VERIFY(view.document()->textWidth() > 0);
+    // The rendered column must not stretch across the whole window; give the
+    // layout a chance to apply the margins.
+    QTRY_VERIFY_WITH_TIMEOUT(view.document()->textWidth() <= view.renderStyle().maxContentWidth + 4, 3000);
 }
 
 QTEST_MAIN(ViewTest)

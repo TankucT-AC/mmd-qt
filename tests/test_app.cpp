@@ -7,7 +7,9 @@
 #include "editor/MarkdownEditor.h"
 #include "viewer/MarkdownView.h"
 
+#include <QApplication>
 #include <QFile>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QTextCursor>
 
@@ -23,6 +25,7 @@ private slots:
     void openingFileLoadsContentAndTitle();
     void savingFileWritesToDisk();
     void externalChangeReloadsUnmodifiedDocument();
+    void themeModePersistsAcrossWindows();
 
 private:
     static void typeInto(MarkdownEditor *editor, const QString &text, QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
@@ -153,6 +156,25 @@ void AppTest::panelsCanBeClosedAndReopened()
     window.toggleViewerAction()->trigger();
     QVERIFY(window.editorPanel()->isVisible());
     QVERIFY(window.viewerPanel()->isVisible());
+}
+
+void AppTest::themeModePersistsAcrossWindows()
+{
+    QSettings settings;
+    settings.clear();
+
+    {
+        MainWindow window;
+        window.themeManager()->setMode(ThemeManager::Mode::Dark);
+    }
+    // A fresh window must pick the saved mode back up.
+    {
+        MainWindow window;
+        QCOMPARE(window.themeManager()->mode(), ThemeManager::Mode::Dark);
+        QCOMPARE(QApplication::palette().color(QPalette::Window), ThemeDefinition::dark().palette.color(QPalette::Window));
+    }
+
+    settings.clear();
 }
 
 QTEST_MAIN(AppTest)

@@ -19,6 +19,7 @@ void ThemeManager::setMode(Mode mode)
     if (m_mode == mode)
         return;
     m_mode = mode;
+    emit modeChanged(mode);
     emit themeChanged(currentTheme());
 }
 

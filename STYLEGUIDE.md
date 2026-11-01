@@ -70,6 +70,11 @@ anchoring on the top block, so the viewport does not jump while you type. If a
 very large document ever proves slow, the next step is to parse off the GUI
 thread — not to diff.
 
+The rendered column is capped (`RenderStyle::maxContentWidth`) and centred, like
+Zed: on a wide window the text keeps a comfortable line length instead of
+stretching edge to edge. `MarkdownView` achieves this with equal viewport
+margins, recomputed on resize.
+
 ## 6. Themes: data, not code
 
 All colors live in `ThemeDefinition` (`src/core/Theme.h`) and are named by role
@@ -85,6 +90,9 @@ set for code — never by shade. Widgets and the renderer must not write literal
   desktops it simply reports nothing.
 - **Custom** loads a theme from JSON (`ThemeDefinition::fromJson`) or from a
   discovered system scheme, which is the extension point for arbitrary themes.
+
+The mode the user picked is remembered across runs (`QSettings`, written by
+`MainWindow` on every mode change and reloaded on startup).
 
 Because color is a value type, a theme swap is just `setRenderStyle(newTheme)`
 followed by a rebuild — no code paths fork on "which theme".

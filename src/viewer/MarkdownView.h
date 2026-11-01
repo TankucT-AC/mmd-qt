@@ -56,8 +56,12 @@ public:
 signals:
     void rendered();
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 private:
     void rebuild();
+    void updateContentMargins();
 
     RenderStyle m_style;
     QString m_source;

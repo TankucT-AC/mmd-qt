@@ -40,6 +40,7 @@ public:
 
 signals:
     void themeChanged(const ThemeDefinition &theme);
+    void modeChanged(Mode mode);
 
 private:
     void maybeEmitChange();
