@@ -40,6 +40,7 @@ native.
 - [Key features](#key-features)
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
+- [Packaging](#packaging)
 - [Usage](#usage)
 - [Architecture](#architecture)
 - [Project layout](#project-layout)
@@ -98,6 +99,29 @@ ctest --preset clang-release
 
 The presets write into `out/<preset>`; `.clangd` points at `out/gcc-debug`, so
 the editor tooling finds the compilation database out of the box.
+
+## Packaging
+
+A minimal Debian package is built with CPack:
+
+```sh
+cmake --preset gcc-release
+cmake --build --preset gcc-release
+cd out/gcc-release && cpack -G DEB        # mmd-qt_<version>_amd64.deb
+```
+
+It installs the executable, the icon and `.desktop` entry, and — because KDE's
+KSyntaxHighlighting is not packaged on every distribution (Ubuntu 24.04 LTS, for
+one) — it also bundles that library **and** its syntax definitions. The package
+therefore depends only on Qt 6.
+
+> [!IMPORTANT]
+> **Portability caveat.** The binary is built against *this* machine's Qt, so it
+> runs only where Qt is at least as new (Ubuntu 24.04 LTS ships Qt 6.4 and is too
+> old; 24.10+ / Debian 13 / Fedora / Arch are fine). For a friend on an older
+> distribution, build the package on that distribution (or in a container of it),
+> or use a Flatpak/AppImage that bundles Qt as well. Building from source with
+> that distribution's own Qt is the other option.
 
 ## Usage
 

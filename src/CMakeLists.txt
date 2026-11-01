@@ -52,8 +52,21 @@ target_link_libraries(mmd_core
         md4c
         mmd_warnings
 )
+
 add_executable(mmd
     main.cpp
     ../resources/resources.qrc
 )
 target_link_libraries(mmd PRIVATE mmd_core)
+
+install(TARGETS mmd RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# Bundle KDE's KSyntaxHighlighting with the application. Some distros do not
+# package it (Ubuntu 24.04 LTS, for one), so we ship the shared object and let
+# the loader find it next to the executable via RPATH — no distro package
+# needed on the target.
+install(FILES $<TARGET_FILE:KF6::SyntaxHighlighting>
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/mmd-qt
+    RENAME libKF6SyntaxHighlighting.so.6)
+set_target_properties(mmd PROPERTIES
+    INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/mmd-qt")

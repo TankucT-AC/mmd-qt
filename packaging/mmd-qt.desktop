@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=mmd-qt
+GenericName=Markdown Editor
+Comment=Two-pane Markdown viewer and editor built with Qt Widgets
+Exec=mmd %F
+Icon=mmd-qt
+Terminal=false
+Categories=Utility;TextEditor;Office;
+MimeType=text/markdown;
+Keywords=markdown;md;editor;viewer;preview;
+StartupNotify=true

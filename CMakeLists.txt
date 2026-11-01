@@ -3,6 +3,8 @@
 
 cmake_minimum_required(VERSION 3.24)
 
+include(GNUInstallDirs)
+
 project(mmd-qt
     VERSION 0.1.0
     DESCRIPTION "Two-pane Markdown viewer and editor built with Qt Widgets"
@@ -51,3 +53,68 @@ add_subdirectory(src)
 
 enable_testing()
 add_subdirectory(tests)
+
+# ---------------------------------------------------------------------------
+# Desktop integration + packaging
+# ---------------------------------------------------------------------------
+install(FILES packaging/mmd-qt.desktop
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+install(FILES resources/logo-256.png
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/256x256/apps
+    RENAME mmd-qt.png)
+install(FILES resources/logo.svg
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
+    RENAME mmd-qt.svg)
+
+# The KSyntaxHighlighting library is only the engine: the language definitions
+# live in a data directory it loads at runtime. Bundle that too, next to the
+# usual location, so highlighting works without the distro package.
+# The imported target's location property is named differently across distros
+# (RELEASE / NOCONFIG / ...), so try them all, then the usual prefixes.
+set(_ksyntax_candidates)
+foreach(_prop IMPORTED_LOCATION_RELEASE IMPORTED_LOCATION_NOCONFIG IMPORTED_LOCATION IMPORTED_LOCATION_DEBUG)
+    get_target_property(_kf6_lib KF6::SyntaxHighlighting ${_prop})
+    if(_kf6_lib AND NOT _kf6_lib MATCHES "NOTFOUND")
+        get_filename_component(_kf6_prefix "${_kf6_lib}/../.." ABSOLUTE)
+        list(APPEND _ksyntax_candidates "${_kf6_prefix}/${CMAKE_INSTALL_DATAROOTDIR}/org.kde.syntax-highlighting")
+    endif()
+endforeach()
+list(APPEND _ksyntax_candidates
+    "/usr/${CMAKE_INSTALL_DATAROOTDIR}/org.kde.syntax-highlighting"
+    "/usr/local/${CMAKE_INSTALL_DATAROOTDIR}/org.kde.syntax-highlighting")
+
+set(_ksyntax_bundled FALSE)
+foreach(_candidate IN LISTS _ksyntax_candidates)
+    if(EXISTS "${_candidate}")
+        install(DIRECTORY "${_candidate}/"
+            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/org.kde.syntax-highlighting")
+        message(STATUS "mmd-qt: bundling syntax definitions from ${_candidate}")
+        set(_ksyntax_bundled TRUE)
+        break()
+    endif()
+endforeach()
+if(NOT _ksyntax_bundled)
+    message(WARNING "mmd-qt: KSyntaxHighlighting syntax definitions not found; "
+        "the package will ship the engine without language definitions")
+endif()
+
+# A minimal Debian package: `cmake --build ... && cpack -G DEB`.
+# Note: dpkg-shlibdeps cannot run here (the build host is not Debian-based), so
+# the runtime dependencies are listed by hand. KSyntaxHighlighting is bundled
+# (see src/CMakeLists.txt), so only Qt is required on the target.
+set(CPACK_PACKAGE_NAME "mmd-qt")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/TankucT-AC/mmd-qt")
+set(CPACK_PACKAGE_CONTACT "Magomed Gadzhiumarov <magomedgadziumarov265@gmail.com>")
+set(CPACK_PACKAGE_VENDOR "mmd-qt contributors")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
+set(CPACK_DEBIAN_PACKAGE_SECTION "editors")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS
+    "libqt6core6 | libqt6core6t64, libqt6gui6 | libqt6gui6t64, libqt6widgets6 | libqt6widgets6t64, libqt6svg6 | libqt6svg6t64, libqt6network6 | libqt6network6t64")
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+include(CPack)
