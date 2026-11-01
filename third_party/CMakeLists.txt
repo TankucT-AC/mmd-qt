@@ -108,6 +108,10 @@ add_library(microtex STATIC
 target_compile_definitions(microtex PUBLIC BUILD_QT)
 target_include_directories(microtex SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/microtex/src)
 target_link_libraries(microtex PUBLIC Qt6::Gui tinyxml2)
+# Upstream code, upstream standards: the warning set this project holds its own
+# sources to does not apply to the vendored tree, so its chatter stays out of
+# our builds entirely.
+target_compile_options(microtex PRIVATE -w)
 
 # MicroTeX loads the glyphs from res/fonts at run time (its metrics are compiled
 # in, the outlines are not), and MathRenderer looks for the directory relative

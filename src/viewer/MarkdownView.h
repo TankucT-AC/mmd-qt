@@ -16,6 +16,7 @@ class GifObjectHandler;
 class CodeHighlighter;
 class CheckboxObjectHandler;
 class ChipObjectHandler;
+class MathObjectHandler;
 
 /*
  * Preview pane: renders markdown source into its QTextDocument and keeps the
@@ -143,6 +144,7 @@ private:
     GifObjectHandler *m_gifHandler = nullptr;
     CheckboxObjectHandler *m_checkboxHandler = nullptr;
     ChipObjectHandler *m_chipHandler = nullptr;
+    MathObjectHandler *m_mathHandler = nullptr;
     std::unique_ptr<CodeHighlighter> m_codeHighlighter;
 
     QTextFrame *m_hoveredFrame = nullptr;

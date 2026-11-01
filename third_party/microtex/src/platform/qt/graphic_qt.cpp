@@ -7,14 +7,15 @@
 #include "platform/qt/graphic_qt.h"
 
 #include <QDebug>
-
 #include <QBrush>
 #include <QColor>
 #include <QFont>
 #include <QFontDatabase>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPen>
 #include <QPointF>
+#include <QRawFont>
 #include <QRectF>
 #include <QString>
 #include <QStringList>
@@ -37,6 +38,61 @@ QString wstring_to_QString(const std::wstring& ws)
     out.truncate(index);
   return out;
 }
+
+namespace {
+
+// Pixel size of the font the glyph outlines are taken from. Large enough that
+// any glyph in the TeX font set rasterises, cheap enough to build per call.
+constexpr int kGlyphOutlinePixelSize = 64;
+
+// Draws `text` with its baseline at (x, y), filling the glyph outlines with
+// `brush`.
+//
+// MicroTeX creates its fonts at a nominal 1pt and does the real scaling through
+// the painter transform. At a ~1px pixel size FreeType refuses to rasterise
+// several cmex10 glyphs outright -- the display-size operators (SUMMATION at
+// slot 0x58) and the grown delimiters -- which left holes in rendered formulas:
+// the glyph was laid out, but never drawn. Taking the outlines from a font at a
+// healthy pixel size and scaling them back into the caller's units keeps every
+// glyph, and needs no shaping, which formulas do not rely on.
+void drawTextOutlines(QPainter *painter, const QFont &base, const QString &text, float x, float y, const QBrush &brush)
+{
+  const QPaintDevice *device = painter->device();
+  qreal emPixels = 0;
+  if (base.pointSizeF() > 0)
+    emPixels = base.pointSizeF() * (device ? qreal(device->logicalDpiY()) : 96.0) / 72.0;
+  else
+    emPixels = base.pixelSize();
+
+  QFont crisp = base;
+  crisp.setPixelSize(kGlyphOutlinePixelSize);
+  const QRawFont raw = QRawFont::fromFont(crisp);
+  if (!raw.isValid()) {
+    painter->save();
+    painter->setFont(base);
+    painter->drawText(QPointF(x, y), text);
+    painter->restore();
+    return;
+  }
+
+  const QList<quint32> glyphs = raw.glyphIndexesForString(text);
+  const QVector<QPointF> advances = raw.advancesForGlyphIndexes(glyphs);
+  const qreal scale = emPixels / kGlyphOutlinePixelSize;
+
+  painter->save();
+  painter->scale(scale, scale);
+  painter->translate(x / scale, y / scale);
+  for (int i = 0; i < glyphs.size(); ++i) {
+    const QPainterPath path = raw.pathForGlyph(glyphs.at(i));
+    if (!path.isEmpty())
+      painter->fillPath(path, brush);
+    if (i < advances.size())
+      painter->translate(advances.at(i).x(), advances.at(i).y());
+  }
+  painter->restore();
+}
+
+} // namespace
 }
 
 Font_qt::Font_qt(const string& family, int style, float size) {
@@ -72,14 +128,13 @@ Font_qt::Font_qt(const string& file, float size)
     return;
   }
 
-  QFontDatabase db;
-  int id = db.addApplicationFont(filename);
+  const int id = QFontDatabase::addApplicationFont(filename);
   if( id == -1 ) {
 #ifdef HAVE_LOG
     __log << file << " failed to load\n";
 #endif
   } else {
-    QStringList families = db.applicationFontFamilies(id);
+    QStringList families = QFontDatabase::applicationFontFamilies(id);
     if( families.size() > 0 ) {
       _loaded_families[filename] = families.first();
       _font.setFamily(families.first());
@@ -153,8 +208,9 @@ void TextLayout_qt::getBounds(Rect& r) {
 
 void TextLayout_qt::draw(Graphics2D& g2, float x, float y) {
   Graphics2D_qt& g = static_cast<Graphics2D_qt&>(g2);
-  g.getQPainter()->setFont(_font);
-  g.getQPainter()->drawText(QPointF(x, y), _text);
+  QPainter* painter = g.getQPainter();
+  painter->setFont(_font);
+  drawTextOutlines(painter, _font, _text, x, y, QBrush(painter->pen().color()));
 }
 
 sptr<TextLayout> TextLayout::create(const std::wstring& src, const sptr<Font>& font) {
@@ -296,14 +352,8 @@ void Graphics2D_qt::drawChar(wchar_t c, float x, float y) {
 
 void Graphics2D_qt::drawText(const std::wstring& t, float x, float y) {
 
-  _painter->setFont(_font->getQFont());
-
-  QString text = wstring_to_QString(t);
-  //qInfo() << "text" << x << y << text << text.toLocal8Bit();
-  //for(size_t i=0; i<t.size(); ++i)
-  //  qInfo() << 'v' << int(t[i]);
-
-  _painter->drawText(QPointF(x, y), text);
+  const QFont font = _font->getQFont();
+  drawTextOutlines(_painter, font, wstring_to_QString(t), x, y, getQBrush());
 }
 
 void Graphics2D_qt::drawLine(float x1, float y1, float x2, float y2) {

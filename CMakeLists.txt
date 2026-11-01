@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.24)
 include(GNUInstallDirs)
 
 project(mmd-qt
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Two-pane Markdown viewer and editor built with Qt Widgets"
     LANGUAGES C CXX)
 
@@ -97,6 +97,12 @@ if(NOT _ksyntax_bundled)
     message(WARNING "mmd-qt: KSyntaxHighlighting syntax definitions not found; "
         "the package will ship the engine without language definitions")
 endif()
+
+# LaTeX formulas: the vendored MicroTeX keeps its metrics compiled in, but loads
+# the glyph outlines from res/fonts at run time. MathRenderer looks for the
+# directory relative to the executable's data root, which is where this puts it.
+install(DIRECTORY third_party/microtex/res
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/mmd-qt/microtex)
 
 # A minimal Debian package: `cmake --build ... && cpack -G DEB`.
 # Note: dpkg-shlibdeps cannot run here (the build host is not Debian-based), so

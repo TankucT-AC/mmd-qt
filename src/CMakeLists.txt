@@ -47,6 +47,8 @@ add_library(mmd_core STATIC
     editor/MarkdownHighlighter.cpp
     viewer/MarkdownView.h
     viewer/MarkdownView.cpp
+    viewer/MathObjectHandler.h
+    viewer/MathObjectHandler.cpp
     viewer/FindBar.h
     viewer/FindBar.cpp
     viewer/GifObjectHandler.h

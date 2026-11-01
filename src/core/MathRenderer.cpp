@@ -26,8 +26,21 @@ bool looksLikeResourceRoot(const QString &path)
 }
 
 // Blank margin around the formula, so antialiased edges and the depth of
-// descenders are not clipped by the bitmap.
-constexpr int kPadding = 2;
+// descenders are not clipped by the bitmap. The TeX boxes report their extent
+// a little tight, so this is generous on purpose.
+constexpr int kPadding = 4;
+
+// Whether anything at all was drawn. A parse that produces a bitmap without a
+// single opaque pixel is a rendering defect -- a glyph the font backend could
+// not produce -- rather than a legitimate empty formula.
+bool hasInk(const QImage &bitmap)
+{
+    for (int y = 0; y < bitmap.height(); ++y)
+        for (int x = 0; x < bitmap.width(); ++x)
+            if (qAlpha(bitmap.pixel(x, y)) > 0)
+                return true;
+    return false;
+}
 
 } // namespace
 
@@ -106,11 +119,8 @@ QImage MathRenderer::image(const QString &tex, bool display, qreal pointSize, co
     const float textSize = float(pointSize * ratio);
     const int width = display ? int(m_maximumWidth * ratio) : int(m_maximumWidth * 4 * ratio);
 
-    std::unique_ptr<tex::TeXRender> render(tex::LaTeX::parse(source.toStdWString(),
-                                                             width,
-                                                             textSize,
-                                                             textSize * 0.5f,
-                                                             tex::rgb(color.red(), color.green(), color.blue())));
+    std::unique_ptr<tex::TeXRender> render(
+        tex::LaTeX::parse(source.toStdWString(), width, textSize, textSize * 0.5f, tex::rgb(color.red(), color.green(), color.blue())));
     if (!render)
         return QImage();
 
@@ -131,6 +141,13 @@ QImage MathRenderer::image(const QString &tex, bool display, qreal pointSize, co
         tex::Graphics2D_qt graphics(&painter);
         render->draw(graphics, kPadding, kPadding);
     }
+
+    // Refuse a blank bitmap instead of handing the pane an invisible hole: the
+    // caller shows the formula's source text when there is no image. The result
+    // is deliberately not cached, so a fixed backend picks it up at once.
+    if (!hasInk(bitmap))
+        return QImage();
+
     bitmap.setDevicePixelRatio(ratio);
 
     m_cache.insert(key, bitmap);

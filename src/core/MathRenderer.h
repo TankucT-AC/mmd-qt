@@ -43,7 +43,10 @@ public:
     QImage image(const QString &tex, bool display, qreal pointSize, const QColor &color, qreal devicePixelRatio);
 
     void clearCache();
-    int cacheSize() const { return int(m_cache.size()); }
+    int cacheSize() const
+    {
+        return int(m_cache.size());
+    }
 
     // Where the TeX resources were found, or empty when they are missing.
     static QString resourceDirectory();

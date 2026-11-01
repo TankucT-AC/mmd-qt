@@ -217,7 +217,27 @@ like this.
 
 ---
 
-## 10. Checklist
+## 10. LaTeX math
+
+Inline formulas use single dollars: mass–energy equivalence $E = mc^2$ and
+Euler's identity $e^{i\pi} + 1 = 0$ sit right in the text.
+
+Display formulas use double dollars on their own lines and come out centred:
+
+$$
+\int_0^{\infty} e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}
+$$
+
+$$
+\sum_{k=1}^{n} k^2 = \frac{n(n+1)(2n+1)}{6}
+$$
+
+Inside inline code and fenced blocks dollar signs stay literal: `$x^2$` here is
+just text.
+
+---
+
+## 11. Checklist
 
 - [x] Headings and the type scale
 - [x] Emphasis, strikethrough, inline code
@@ -227,5 +247,6 @@ like this.
 - [x] Tables with alignment
 - [x] Links: inline, autolink, reference, relative
 - [x] Images: PNG, JPEG, SVG, WebP, GIF, wide, missing
+- [x] LaTeX math: inline and display, with fractions, roots, sums, matrices
 - [x] Horizontal rules
 - [ ] Whatever you find missing — add it here

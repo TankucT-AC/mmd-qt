@@ -5,10 +5,12 @@
 
 #include "app/ScrollSync.h"
 #include "core/DocumentLimits.h"
+#include "core/MarkdownBuilder.h"
 #include "core/Theme.h"
 #include "viewer/MarkdownView.h"
 
 #include <QClipboard>
+#include <QColor>
 #include <QGuiApplication>
 #include <QPlainTextEdit>
 #include <QScrollBar>
@@ -38,6 +40,7 @@ private slots:
     void renderAnywayOverridesThePause();
     void deferredDocumentStillRenders();
     void smallDocumentRendersImmediately();
+    void inlineMathBecomesADrawnObject();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -49,6 +52,36 @@ void ViewTest::rendersMarkdownIntoDocument()
     const QString text = view.document()->toPlainText();
     QVERIFY(text.contains(QStringLiteral("Title")));
     QVERIFY(text.contains(QStringLiteral("text")));
+}
+
+void ViewTest::inlineMathBecomesADrawnObject()
+{
+    MarkdownView view;
+    view.resize(600, 400);
+    view.show();
+    view.setRenderInterval(0);
+    view.setMarkdown(QStringLiteral("Euler: $e^{i\\pi} + 1 = 0$ indeed\n"));
+
+    // The formula arrives as an object replacement character carrying the TeX
+    // source; the handler registered by the view draws it, so rendering the
+    // pane must produce ink where the formula sits -- not the raw source.
+    bool hasMathObject = false;
+    for (QTextBlock block = view.document()->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().isValid() && it.fragment().charFormat().objectType() == MarkdownBuilder::mathObjectType)
+                hasMathObject = true;
+        }
+    }
+    QVERIFY(hasMathObject);
+    QVERIFY(!view.document()->toPlainText().contains(QStringLiteral("e^{i\\pi}")));
+
+    const QImage image = view.viewport()->grab().toImage();
+    int ink = 0;
+    for (int y = 0; y < image.height(); y += 2)
+        for (int x = 0; x < image.width(); x += 2)
+            if (image.pixel(x, y) != QColor(Qt::white).rgb() && qAlpha(image.pixel(x, y)) > 0)
+                ++ink;
+    QVERIFY2(ink > 20, "the pane shows no drawn formula");
 }
 
 void ViewTest::previewHighlightsFencedCode()

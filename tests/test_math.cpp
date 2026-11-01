@@ -3,12 +3,18 @@
 
 #include <QtTest>
 
+#include "core/MarkdownBuilder.h"
 #include "core/MathRenderer.h"
+#include "viewer/MathObjectHandler.h"
 
 #include <QColor>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QPainter>
+#include <QRegularExpression>
+#include <QTextCursor>
+#include <QTextDocument>
 
 class MathTest : public QObject
 {
@@ -21,10 +27,17 @@ private slots:
     void cachesRepeatedFormulas();
     void rejectsEmptySources();
     void survivesNonsenseInput();
+    void rendersTheSummationOperator();
+    void rendersBigDelimiters();
+    void blankRenderFallsBackToNoImage();
+    void rendersAGalleryOfFormulas();
+    void handlerDrawsTheFormula();
+    void handlerFallsBackToSourceText();
     void staysFastForManyFormulas();
 
 private:
     static bool hasInk(const QImage &image);
+    static int inkColumnCount(const QImage &image);
 };
 
 bool MathTest::hasInk(const QImage &image)
@@ -96,6 +109,168 @@ void MathTest::survivesNonsenseInput()
     // Whatever the source, the pane must not crash on it.
     const QImage image = MathRenderer::instance().image(QStringLiteral("\\thisIsNotACommand{"), false, 16, QColor(Qt::black), 1.0);
     Q_UNUSED(image); // empty or not, the point is that it returned
+}
+
+void MathTest::rendersTheSummationOperator()
+{
+    MathRenderer &renderer = MathRenderer::instance();
+    renderer.clearCache();
+
+    // The display-size summation comes from the size-variant slots of cmex10,
+    // which the font backend used to lay out but draw as a hole.
+    const QImage image = renderer.image(QStringLiteral("\\sum"), true, 16, QColor(Qt::black), 1.0);
+    QVERIFY2(!image.isNull() && hasInk(image), "the summation operator was not drawn");
+}
+
+void MathTest::rendersBigDelimiters()
+{
+    MathRenderer &renderer = MathRenderer::instance();
+    renderer.clearCache();
+
+    // A delimiter grows to its content, and only the grown variants come from
+    // the size-variant slots that used to render as holes.
+    const QImage bare = renderer.image(QStringLiteral("\\frac{a}{b}"), false, 16, QColor(Qt::black), 1.0);
+    const QImage delimited = renderer.image(QStringLiteral("\\left( \\frac{a}{b} \\right)"), false, 16, QColor(Qt::black), 1.0);
+    QVERIFY(!bare.isNull() && !delimited.isNull());
+
+    // The delimited formula reserves room for its delimiters: when those glyphs
+    // fail to draw, its ink is exactly the bare fraction's. Working delimiters
+    // add ink columns of their own on both flanks.
+    QVERIFY2(inkColumnCount(delimited) >= inkColumnCount(bare) + 4, "the delimiters were laid out but not drawn");
+}
+
+int MathTest::inkColumnCount(const QImage &image)
+{
+    int columns = 0;
+    for (int x = 0; x < image.width(); ++x) {
+        for (int y = 0; y < image.height(); ++y) {
+            if (qAlpha(image.pixel(x, y)) > 0) {
+                ++columns;
+                break;
+            }
+        }
+    }
+    return columns;
+}
+
+void MathTest::blankRenderFallsBackToNoImage()
+{
+    MathRenderer &renderer = MathRenderer::instance();
+    renderer.clearCache();
+
+    // \hspace parses and has layout width, but produces no ink. A blank bitmap
+    // is exactly how a glyph the backend failed to draw presents itself, so the
+    // renderer refuses it and the pane falls back to the formula's source text.
+    const QImage image = renderer.image(QStringLiteral("\\hspace{2em}"), false, 16, QColor(Qt::black), 1.0);
+    QVERIFY2(image.isNull(), "a blank bitmap was returned as if it were a render");
+}
+
+void MathTest::rendersAGalleryOfFormulas()
+{
+    // One test per glyph class that has broken before. Every entry must produce
+    // a bitmap with actual ink, and none may fall back to "no image".
+    MathRenderer &renderer = MathRenderer::instance();
+    renderer.clearCache();
+
+    const QStringList gallery = {
+        QStringLiteral("\\sum_{i=1}^{n} x_i"),
+        QStringLiteral("\\prod_{k=1}^{n} a_k"),
+        QStringLiteral("\\int_0^{\\infty} e^{-x}\\,dx"),
+        QStringLiteral("\\lim_{x \\to 0} \\frac{\\sin x}{x}"),
+        QStringLiteral("\\sqrt[3]{x + 1}"),
+        QStringLiteral("\\left( \\frac{a}{b} \\right)^2"),
+        QStringLiteral("\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"),
+        QStringLiteral("\\alpha \\beta \\gamma \\Omega \\phi"),
+        QStringLiteral("f(x) = \\frac{1}{\\sigma\\sqrt{2\\pi}} e^{-\\frac{x^2}{2}}"),
+    };
+
+    for (const QString &formula : gallery) {
+        const QImage image = renderer.image(formula, true, 16, QColor(Qt::black), 1.0);
+        QVERIFY2(!image.isNull(), qPrintable(QStringLiteral("no image for %1").arg(formula)));
+        QVERIFY2(hasInk(image), qPrintable(QStringLiteral("nothing drawn for %1").arg(formula)));
+
+        // Temporary: dump the gallery for eyeballing when asked to.
+        if (qEnvironmentVariableIsSet("MMD_MATH_GALLERY_DIR")) {
+            const QString dir = qEnvironmentVariable("MMD_MATH_GALLERY_DIR");
+            QDir().mkpath(dir);
+            const QString stem = QString(formula).remove(QRegularExpression(QStringLiteral("[^A-Za-z0-9]"))).left(20);
+            QImage overWhite(image.size(), QImage::Format_ARGB32_Premultiplied);
+            overWhite.fill(Qt::white);
+            QPainter compositor(&overWhite);
+            compositor.drawImage(0, 0, image);
+            compositor.end();
+            overWhite.save(QStringLiteral("%1/%2.png").arg(dir, stem));
+        }
+    }
+}
+
+void MathTest::handlerDrawsTheFormula()
+{
+    MathObjectHandler handler;
+    QFont body;
+    body.setPointSizeF(12);
+    handler.setBodyFont(body);
+    handler.setColor(QColor(Qt::black));
+    handler.setDevicePixelRatio(1.0);
+
+    QTextDocument document;
+    QTextCharFormat format;
+    format.setObjectType(MarkdownBuilder::mathObjectType);
+    format.setProperty(MarkdownBuilder::mathSourceKey, QStringLiteral("x^2 + y^2"));
+    format.setProperty(MarkdownBuilder::mathDisplayKey, false);
+    QTextCursor(&document).insertText(QString(QChar::ObjectReplacementCharacter), format);
+
+    const QSizeF size = handler.intrinsicSize(&document, 0, format);
+    QVERIFY2(size.width() > 8 && size.height() > 8, "the formula has no measurable size");
+
+    QImage image(int(size.width()) + 8, int(size.height()) + 8, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    handler.drawObject(&painter, QRectF(4, 4, size.width(), size.height()), &document, 0, format);
+    painter.end();
+
+    // Ink that is not the white backdrop: the formula itself.
+    bool drawn = false;
+    for (int y = 0; y < image.height() && !drawn; ++y)
+        for (int x = 0; x < image.width() && !drawn; ++x)
+            if (image.pixel(x, y) != QColor(Qt::white).rgb())
+                drawn = true;
+    QVERIFY2(drawn, "drawObject produced a blank area");
+}
+
+void MathTest::handlerFallsBackToSourceText()
+{
+    // \hspace has layout width but no ink, so the renderer refuses it: the
+    // handler must still show something readable -- the source text.
+    MathObjectHandler handler;
+    QFont body;
+    body.setPointSizeF(12);
+    handler.setBodyFont(body);
+    handler.setColor(QColor(Qt::black));
+    handler.setDevicePixelRatio(1.0);
+
+    QTextDocument document;
+    QTextCharFormat format;
+    format.setObjectType(MarkdownBuilder::mathObjectType);
+    format.setProperty(MarkdownBuilder::mathSourceKey, QStringLiteral("\\hspace{2em}"));
+    format.setProperty(MarkdownBuilder::mathDisplayKey, false);
+    QTextCursor(&document).insertText(QString(QChar::ObjectReplacementCharacter), format);
+
+    const QSizeF size = handler.intrinsicSize(&document, 0, format);
+    QVERIFY2(size.width() > 8, "even the fallback needs a measurable size");
+
+    QImage image(int(size.width()) + 8, int(size.height()) + 8, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    handler.drawObject(&painter, QRectF(4, 4, size.width(), size.height()), &document, 0, format);
+    painter.end();
+
+    bool drawn = false;
+    for (int y = 0; y < image.height() && !drawn; ++y)
+        for (int x = 0; x < image.width() && !drawn; ++x)
+            if (image.pixel(x, y) != QColor(Qt::white).rgb())
+                drawn = true;
+    QVERIFY2(drawn, "the refused formula was drawn as nothing at all");
 }
 
 void MathTest::staysFastForManyFormulas()

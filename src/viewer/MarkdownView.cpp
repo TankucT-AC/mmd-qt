@@ -8,6 +8,7 @@
 #include "viewer/ChipObjectHandler.h"
 #include "viewer/CodeHighlighter.h"
 #include "viewer/GifObjectHandler.h"
+#include "viewer/MathObjectHandler.h"
 
 #include <QAbstractTextDocumentLayout>
 #include <QClipboard>
@@ -45,6 +46,7 @@ MarkdownView::MarkdownView(QWidget *parent)
     , m_gifHandler(new GifObjectHandler(document(), this))
     , m_checkboxHandler(new CheckboxObjectHandler(this))
     , m_chipHandler(new ChipObjectHandler(this))
+    , m_mathHandler(new MathObjectHandler(this))
     , m_codeHighlighter(new CodeHighlighter)
 {
     setOpenExternalLinks(false);
@@ -55,6 +57,7 @@ MarkdownView::MarkdownView(QWidget *parent)
     document()->documentLayout()->registerHandler(MarkdownBuilder::gifObjectType, m_gifHandler);
     document()->documentLayout()->registerHandler(MarkdownBuilder::checkboxObjectType, m_checkboxHandler);
     document()->documentLayout()->registerHandler(MarkdownBuilder::chipObjectType, m_chipHandler);
+    document()->documentLayout()->registerHandler(MarkdownBuilder::mathObjectType, m_mathHandler);
 
     m_renderTimer = new QTimer(this);
     m_renderTimer->setSingleShot(true);
@@ -84,6 +87,9 @@ void MarkdownView::setRenderStyle(const RenderStyle &style)
     m_gifHandler->setMaximumWidth(style.maxImageWidth);
     m_checkboxHandler->setColors(style.theme.markdown.weakText, style.theme.markdown.weakText, style.theme.palette.color(QPalette::Base));
     m_chipHandler->setColors(style.theme.markdown.codeBackground, style.theme.markdown.tableBorder, style.theme.markdown.weakText);
+    m_mathHandler->setBodyFont(style.fonts.bodyFont());
+    m_mathHandler->setColor(style.theme.palette.color(QPalette::Text));
+    m_mathHandler->setDevicePixelRatio(devicePixelRatioF());
     m_codeHighlighter->setThemeDefinition(style.theme);
     setPalette(style.theme.palette);
     updateContentMargins();
