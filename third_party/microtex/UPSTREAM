@@ -1,0 +1,6 @@
+Vendored from https://github.com/NanoMichael/MicroTeX
+commit 0e3707f6dafebb121d98b53c64364d16fefe481d
+
+MicroTeX is MIT (see LICENSE). The fonts and XML in res/ carry their own
+licences, kept verbatim under res/fonts/licences and res/*/. Nothing here may
+be stripped when updating.

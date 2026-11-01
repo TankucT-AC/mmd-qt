@@ -35,6 +35,8 @@ add_library(mmd_core STATIC
     core/FindState.cpp
     core/Outline.h
     core/Outline.cpp
+    core/MathRenderer.h
+    core/MathRenderer.cpp
     core/SystemThemeProvider.h
     core/SystemThemeProvider.cpp
     core/MarkdownBuilder.h
@@ -63,6 +65,7 @@ target_link_libraries(mmd_core
         Qt6::Widgets
         Qt6::Svg
         KF6::SyntaxHighlighting
+        microtex
         md4c
         mmd_warnings
 )

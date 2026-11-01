@@ -1,0 +1,4 @@
+Vendored from https://github.com/leethomason/tinyxml2
+commit 8224e427b655b83dae5e2298f1e6919523a78737
+
+zlib licence (see LICENSE.txt). MicroTeX parses its resource XML with it.
