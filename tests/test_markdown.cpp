@@ -43,7 +43,7 @@ private slots:
     void gfmTable();
     void imageResolvesAgainstBaseDir();
     void animatedImageBecomesObject();
-    void svgIsRasterisedAtHighResolution();
+    void svgIsRasterisedWithAntialiasing();
     void horizontalRule();
     void entityDecoding();
     void softBreakStaysOneParagraph();
@@ -434,19 +434,19 @@ void MarkdownTest::animatedImageBecomesObject()
     QVERIFY(found);
 }
 
-void MarkdownTest::svgIsRasterisedAtHighResolution()
+void MarkdownTest::svgIsRasterisedWithAntialiasing()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
-    QFile svg(dir.filePath(QStringLiteral("badge.svg")));
+    QFile svg(dir.filePath(QStringLiteral("circle.svg")));
     QVERIFY(svg.open(QIODevice::WriteOnly));
     svg.write(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"20\">"
-        "<rect width=\"100\" height=\"20\" fill=\"#09f\"/></svg>");
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\">"
+        "<circle cx=\"24\" cy=\"24\" r=\"18\" fill=\"#ff0000\"/></svg>");
     svg.close();
 
     QTextDocument document;
-    render(&document, QStringLiteral("![badge](badge.svg)\n"), dir.path());
+    render(&document, QStringLiteral("![circle](circle.svg)\n"), dir.path());
 
     QTextImageFormat image;
     bool found = false;
@@ -460,12 +460,24 @@ void MarkdownTest::svgIsRasterisedAtHighResolution()
         }
     }
     QVERIFY(found);
-    // The SVG is handed over as a document resource, oversampled for crispness.
+    // The SVG is handed over as a document resource.
     QVERIFY(image.name().startsWith(QStringLiteral("mmd-res-")));
     const QVariant resource = document.resource(QTextDocument::ImageResource, QUrl(image.name()));
     QVERIFY(resource.isValid());
     const QImage rasterised = resource.value<QImage>();
-    QVERIFY(rasterised.width() >= image.width() * 2);
+    QVERIFY(!rasterised.isNull());
+
+    // Antialiasing leaves partially transparent pixels along the circle's edge;
+    // without it every pixel would be fully opaque or fully transparent.
+    int edgePixels = 0;
+    for (int y = 0; y < rasterised.height(); ++y) {
+        for (int x = 0; x < rasterised.width(); ++x) {
+            const int alpha = qAlpha(rasterised.pixel(x, y));
+            if (alpha > 0 && alpha < 255)
+                ++edgePixels;
+        }
+    }
+    QVERIFY(edgePixels > 0);
 }
 
 void MarkdownTest::horizontalRule()

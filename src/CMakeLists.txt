@@ -43,6 +43,7 @@ target_include_directories(mmd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(mmd_core
     PUBLIC
         Qt6::Widgets
+        Qt6::Svg
         KF6::SyntaxHighlighting
         md4c
 )

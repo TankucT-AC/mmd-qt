@@ -40,31 +40,32 @@ void CheckboxObjectHandler::drawObject(QPainter *painter, const QRectF &rect, QT
 
     const bool checked = format.property(MarkdownBuilder::checkboxCheckedKey).toBool();
     const qreal side = qMin(rect.width(), rect.height());
-    const QRectF box(rect.x(), rect.center().y() - side / 2.0, side, side);
-    const qreal radius = side * 0.22;
+    // Zed-style: a square box, aligned to the text baseline area.
+    const QRectF box(qRound(rect.x()), qRound(rect.center().y() - side / 2.0), qRound(side), qRound(side));
 
     painter->save();
-    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setRenderHint(QPainter::Antialiasing, false); // square edges stay crisp
 
     if (checked) {
         painter->setPen(Qt::NoPen);
         painter->setBrush(m_checkedFill);
-        painter->drawRoundedRect(box, radius, radius);
+        painter->drawRect(box);
 
         QPainterPath tick;
-        tick.moveTo(box.left() + side * 0.22, box.top() + side * 0.53);
-        tick.lineTo(box.left() + side * 0.42, box.top() + side * 0.72);
-        tick.lineTo(box.left() + side * 0.79, box.top() + side * 0.28);
-        QPen pen(m_check, qMax(1.2, side * 0.14));
-        pen.setCapStyle(Qt::RoundCap);
-        pen.setJoinStyle(Qt::RoundJoin);
+        tick.moveTo(box.left() + side * 0.24, box.top() + side * 0.52);
+        tick.lineTo(box.left() + side * 0.43, box.top() + side * 0.71);
+        tick.lineTo(box.left() + side * 0.77, box.top() + side * 0.30);
+        QPen pen(m_check, qMax(1.4, side * 0.16));
+        pen.setCapStyle(Qt::FlatCap);
+        pen.setJoinStyle(Qt::MiterJoin);
+        painter->setRenderHint(QPainter::Antialiasing, true);
         painter->setPen(pen);
         painter->setBrush(Qt::NoBrush);
         painter->drawPath(tick);
     } else {
-        painter->setPen(QPen(m_border, qMax(1.2, side * 0.11)));
+        painter->setPen(QPen(m_border, qMax(1.2, side * 0.09)));
         painter->setBrush(Qt::NoBrush);
-        painter->drawRoundedRect(box.adjusted(0.6, 0.6, -0.6, -0.6), radius, radius);
+        painter->drawRect(box.adjusted(0.5, 0.5, -0.5, -0.5));
     }
 
     painter->restore();

@@ -4,8 +4,9 @@
 
 `CheckboxObjectHandler` draws task-list checkboxes in the preview. The earlier
 approach used the ☐ / ☑ glyphs, whose shape and colour did not match the theme;
-here the box is drawn to the palette — a rounded outline when unchecked, and an
-accent-filled box with a tick when checked.
+here the box is drawn to the palette in a Zed-like style — a plain square
+outline when unchecked, and a filled square with a tick when checked. Task items
+carry no bullet; the checkbox replaces it.
 
 It is a `QTextObjectInterface`, the document-side counterpart of a widget, so
 the checkbox is a real object inside the text flow rather than a font glyph.

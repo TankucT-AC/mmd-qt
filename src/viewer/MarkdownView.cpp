@@ -49,7 +49,7 @@ void MarkdownView::setRenderStyle(const RenderStyle &style)
 {
     m_style = style;
     m_gifHandler->setMaximumWidth(style.maxImageWidth);
-    m_checkboxHandler->setColors(style.theme.markdown.weakText, style.theme.markdown.link, style.theme.palette.color(QPalette::Base));
+    m_checkboxHandler->setColors(style.theme.markdown.weakText, style.theme.markdown.weakText, style.theme.palette.color(QPalette::Base));
     m_codeHighlighter->setThemeDefinition(style.theme);
     setPalette(style.theme.palette);
     renderNow();

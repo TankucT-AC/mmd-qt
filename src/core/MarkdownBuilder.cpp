@@ -8,9 +8,13 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFontMetricsF>
+#include <QGuiApplication>
 #include <QImage>
 #include <QImageReader>
+#include <QPainter>
+#include <QScreen>
 #include <QStack>
+#include <QSvgRenderer>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -76,6 +80,31 @@ QString decodeAttribute(const MD_ATTRIBUTE &attribute)
             break;
     }
     return result;
+}
+
+qreal devicePixelRatio()
+{
+    if (const QScreen *screen = QGuiApplication::primaryScreen())
+        return screen->devicePixelRatio();
+    return 1.0;
+}
+
+// Rasterises an SVG at the requested pixel size with antialiasing, so scaled
+// vector art stays smooth instead of showing stair-stepped edges.
+QImage rasteriseSvg(const QString &path, const QSize &pixelSize)
+{
+    QSvgRenderer renderer(path);
+    if (!renderer.isValid() || !pixelSize.isValid())
+        return QImage();
+
+    QImage image(pixelSize, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    renderer.render(&painter, QRectF(QPointF(0.0, 0.0), QSizeF(pixelSize)));
+    painter.end();
+    return image;
 }
 
 class Builder
@@ -280,6 +309,9 @@ void Builder::startBlock()
     if (pending.attachToList) {
         if (!m_pendingListFormats.isEmpty()) {
             QTextListFormat listFormat = m_pendingListFormats.takeLast();
+            // Task lists show the checkbox instead of a bullet (Zed/GitHub style).
+            if (m_taskPending)
+                listFormat.setStyle(QTextListFormat::ListStyleUndefined);
             listFormat.setIndent(m_lists.size() + 1);
             m_lists.append(m_cursor.createList(listFormat));
         } else if (!m_lists.isEmpty() && m_lists.last()->itemNumber(m_cursor.block()) < 0) {
@@ -887,20 +919,27 @@ void Builder::insertImage(const MD_SPAN_IMG_DETAIL *detail)
         return;
     }
 
-    QImageReader reader(path);
-    QSize natural = reader.size();
+    const bool isSvg = path.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive);
+
+    QSize natural;
+    if (isSvg) {
+        QSvgRenderer renderer(path);
+        natural = renderer.defaultSize();
+    }
+    if (!natural.isValid())
+        natural = QImageReader(path).size();
+
     QSize display = natural;
     if (natural.isValid() && natural.width() > m_style.maxImageWidth) {
         display.setWidth(m_style.maxImageWidth);
         display.setHeight(qRound(qreal(natural.height()) * m_style.maxImageWidth / natural.width()));
     }
 
-    // SVG is resolution-independent: rasterise it at a multiple of the display
-    // size and hand it to the document as a resource, so scaling stays crisp.
-    if (path.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive) && display.isValid()) {
-        const int oversample = 3;
-        reader.setScaledSize(display * oversample);
-        const QImage rasterised = reader.read();
+    // SVG is resolution-independent: rasterise it at the device pixel size with
+    // antialiasing and hand it over as a resource, so it stays crisp.
+    if (isSvg && display.isValid()) {
+        const QSize pixelSize = (QSizeF(display) * devicePixelRatio()).toSize();
+        const QImage rasterised = rasteriseSvg(path, pixelSize);
         if (!rasterised.isNull()) {
             const QString name = QStringLiteral("mmd-res-") + QString::number(qHash(path), 16);
             m_document->addResource(QTextDocument::ImageResource, QUrl(name), rasterised);

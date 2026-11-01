@@ -106,7 +106,17 @@ resources. A `FontSet::System` option falls back to the platform fonts. Heading
 sizes follow a modular scale (base 12 pt, ratio 1.2), so the hierarchy stays
 proportional if the base changes — no magic numbers scattered across files.
 
-## 8. Syntax highlighting
+## 8. Images and animations
+
+**Animated GIF** plays in place (`GifObjectHandler`, a `QTextObjectInterface`
+driving a `QMovie`). **Static images** (PNG, JPEG, WebP) are drawn by the text
+layout directly. **SVG** is resolution-independent, so it is rasterised on the
+fly with `QSvgRenderer` (Qt6::Svg) at the *device* pixel size and with
+`Antialiasing` enabled, then handed to the document as an image resource — that
+keeps vector art crisp and smooth instead of showing stair-stepped edges. Any
+other image is scaled down to `RenderStyle::maxImageWidth`.
+
+## 9. Syntax highlighting
 
 Two independent highlighters, both driven by the theme:
 
@@ -123,7 +133,7 @@ One gotcha is worth recording: a `QSyntaxHighlighter` pass that runs *during*
 text replacement therefore goes through `MarkdownEditor::setMarkdown()`, which
 re-highlights explicitly.
 
-## 9. Files and the outside world
+## 10. Files and the outside world
 
 `FileDocument` (`src/core/FileDocument.h`) owns the file on disk. It watches the
 file *and its directory*, so it notices the atomic-replace pattern (write-temp,
@@ -131,7 +141,7 @@ rename) most editors use. It never prompts; deciding what to do about an
 external change is `MainWindow`'s job, which is why the policy — reload
 silently, or ask before discarding unsaved edits — lives in one slot.
 
-## 10. Testing
+## 11. Testing
 
 Format: **one QTest binary per module**, registered in CTest
 
@@ -156,7 +166,7 @@ What is tested, and how:
 The order is red → green: write the failing test, then the implementation. The
 history of this repository is a sequence of such steps.
 
-## 11. The pipeline for any change
+## 12. The pipeline for any change
 
 ```sh
 cmake --build --preset gcc-debug && ctest --preset gcc-debug   # tests
@@ -171,7 +181,7 @@ cmake --preset clang-release && cmake --build --preset clang-release && ctest --
 Commits are small and conventional (`feat:`, `fix:`, `refactor:`, `docs:`); one
 logical step per commit, and the tree builds and passes after every one.
 
-## 12. Review checklist
+## 13. Review checklist
 
 Drawn from bugs actually hit while building this project:
 
@@ -188,7 +198,7 @@ Drawn from bugs actually hit while building this project:
 - [ ] **Scroll/layout values guarded** against a zero range before dividing.
 - [ ] **License headers intact** and new files carry SPDX lines.
 
-## 13. Where to look next
+## 14. Where to look next
 
 | To understand | Read |
 |---|---|
