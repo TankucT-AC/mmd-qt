@@ -23,7 +23,7 @@ class FindController;
 class MarkdownEditor;
 class MarkdownView;
 class OutlinePanel;
-class ScrollSync;
+class SidebarTitleBar;
 
 class MainWindow : public QMainWindow
 {
@@ -85,9 +85,9 @@ private:
     FindController *m_find = nullptr;
     QDockWidget *m_sidebar = nullptr;
     OutlinePanel *m_outlinePanel = nullptr;
+    SidebarTitleBar *m_sidebarTitleBar = nullptr;
     FileTreePanel *m_filesPanel = nullptr;
     QVector<OutlineEntry> m_outline;
-    ScrollSync *m_scrollSync = nullptr;
     FileDocument *m_file = nullptr;
     ThemeManager *m_themes = nullptr;
     DocumentLimits m_limits;

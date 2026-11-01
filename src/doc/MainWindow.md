@@ -4,14 +4,14 @@
 
 `MainWindow` is the composition root: it builds the two panes, the menus, and the
 wiring between the data layer and the views. It owns the theme manager, the file
-document, the scroll synchroniser and the two panes, and it holds the policies
-that belong to the window rather than to any reusable class — the unsaved-changes
-guard, the external-change prompt, and the title's modified marker.
+document and the two panes, and it holds the policies that belong to the window
+rather than to any reusable class — the unsaved-changes guard, the
+external-change prompt, and the title's modified marker.
 
 ## 2. Project Structure and Dependencies
 
 - Entry point (`src/main.cpp`) creates it.
-- Depends on Qt6 Widgets (`QMainWindow`, menus, dialogs), `core/ThemeManager`, `core/FileDocument`, `editor/MarkdownEditor`, `viewer/MarkdownView`, `app/ScrollSync`.
+- Depends on Qt6 Widgets (`QMainWindow`, menus, dialogs), `core/ThemeManager`, `core/FileDocument`, `editor/MarkdownEditor`, `viewer/MarkdownView`.
 
 ## 3. Class Hierarchy and Role
 
@@ -54,8 +54,8 @@ saves or discards.
 
 ## 11. Ownership and Lifecycle
 
-Top-level widget. It parents the theme manager, file document, scroll sync,
-editor and viewer, all destroyed with it.
+Top-level widget. It parents the theme manager, file document, editor and
+viewer, all destroyed with it.
 
 ## 12. Thread Safety
 
@@ -64,7 +64,14 @@ GUI-thread only.
 ## 14. Inter-Class Interactions
 
 - Connects `MarkdownEditor::textChanged` → `MarkdownView::setMarkdown`.
-- Connects `ThemeManager::themeChanged` → `applyTheme` (palette + editor + viewer).
+- Connects `MarkdownView::sourceLineActivated` → `MarkdownEditor::gotoSourceLine`: a
+  click in the preview puts the editor's caret on the line that block came from.
+  The two panes scroll independently — a proportional scroll sync disagrees with
+  the reader because rendered and source heights do not line up.
+- Connects `OutlinePanel::entryActivated` → `activateOutlineEntry`, which scrolls
+  the preview and (when the renderer and the source scan agree) the editor.
+- Connects `ThemeManager::themeChanged` → `applyTheme` (palette, sidebar hairline,
+  editor, viewer).
 - Connects `FileDocument::externallyChanged` → `onExternalChange`.
 - Connects the editor document's `modificationChanged` → title update.
 

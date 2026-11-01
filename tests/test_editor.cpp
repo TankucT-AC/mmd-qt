@@ -21,6 +21,7 @@ private slots:
     void editorAppliesThemeAndCountsLines();
     void themeSwitchRehighlights();
     void highlightingCanBeDetached();
+    void gotoSourceLineMovesTheCaretWithoutFocus();
 
 private:
     static QTextCharFormat formatAt(const QTextBlock &block, int position);
@@ -151,6 +152,22 @@ void EditorTest::highlightingCanBeDetached()
     editor.setDocumentLimits(DocumentLimits{});
     QVERIFY(editor.highlightingEnabled());
     QCOMPARE(formatAt(editor.document()->firstBlock(), 0).fontWeight(), int(QFont::Bold));
+}
+
+void EditorTest::gotoSourceLineMovesTheCaretWithoutFocus()
+{
+    MarkdownEditor editor;
+    editor.setMarkdown(QStringLiteral("# Title\n\nfirst\n\nsecond\n"));
+    QVERIFY(!editor.hasFocus());
+
+    editor.gotoSourceLine(4);
+
+    QCOMPARE(editor.textCursor().block().blockNumber(), 4);
+    QCOMPARE(editor.textCursor().block().text(), QStringLiteral("second"));
+    QVERIFY(!editor.textCursor().hasSelection());
+    // Moving the caret must not steal the focus: the click came from the
+    // preview, which keeps it, so text there can still be selected and copied.
+    QVERIFY(!editor.hasFocus());
 }
 
 QTEST_MAIN(EditorTest)

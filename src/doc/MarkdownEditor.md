@@ -44,6 +44,18 @@ the text would otherwise appear unhighlighted until the next edit.
 The pixel width reserved for the gutter, sized to the number of digits in the
 highest line number. Callers re-apply it as a viewport margin.
 
+#### bool gotoHeading(int index)
+
+Selects the index-th ATX heading of the source and centres it. Returns `false`
+when the source has no such heading, which is how a caller learns that the
+renderer and the source scan disagree.
+
+#### void gotoSourceLine(int line)
+
+Puts the caret on a zero-based source line and centres it, without taking the
+focus: it is driven by a click in the preview, which keeps the focus so text
+there can still be selected and copied.
+
 ## 10. Protected Virtual Methods / Event Handlers
 
 #### void resizeEvent(QResizeEvent *event) [override]

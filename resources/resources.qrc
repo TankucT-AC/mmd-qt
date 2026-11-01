@@ -1,7 +1,9 @@
 <RCC>
     <qresource prefix="/mmd/logo">
         <file alias="logo-16.png">logo-16.png</file>
+        <file alias="logo-24.png">logo-24.png</file>
         <file alias="logo-32.png">logo-32.png</file>
+        <file alias="logo-48.png">logo-48.png</file>
         <file alias="logo-64.png">logo-64.png</file>
         <file alias="logo-128.png">logo-128.png</file>
         <file alias="logo-256.png">logo-256.png</file>

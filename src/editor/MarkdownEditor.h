@@ -49,6 +49,10 @@ public:
     // caller finds out that the renderer and the scan disagree.
     bool gotoHeading(int index);
 
+    // Puts the caret on a zero-based source line, without taking the focus: the
+    // preview stays usable while the editor follows it (click-to-source).
+    void gotoSourceLine(int line);
+
     // Replaces the whole document and re-highlights. Programmatic text
     // replacement needs an explicit rehighlight: the synchronous pass Qt runs
     // during setPlainText writes to a layout that is discarded afterwards.

@@ -12,6 +12,12 @@ top of the viewport.
 The document is rebuilt in place rather than swapped, which keeps the animated
 image handler registration valid.
 
+It also answers click-to-source: the builder stamps every block with the source
+line it came from, and a plain click reports that line so the editor can put its
+caret there. The two panes scroll independently on purpose: rendered and source
+heights do not line up, so keeping them in step by scroll fraction disagrees with
+the reader.
+
 ## 2. Project Structure and Dependencies
 
 - Instantiated by `app/MainWindow`.
@@ -28,6 +34,12 @@ on the document layout at construction.
 #### void rendered()
 
 Emitted after each rebuild completes. Tests use it to observe coalescing.
+
+#### void sourceLineActivated(int line)
+
+A plain click landed on a block the builder could map: the editor should move its
+caret to this zero-based source line. Links and the code-box copy button do not
+emit it, and neither does a drag (which is a selection).
 
 ## 9. Public Methods
 
@@ -59,6 +71,28 @@ Renders immediately, bypassing the debounce (used after a splitter resize).
 #### int renderInterval() const / void setRenderInterval(int milliseconds)
 
 The debounce interval in milliseconds. `0` renders synchronously, which is what the tests use.
+
+#### int sourceLineAt(const QPoint &viewportPos) const
+
+Zero-based source line of the block under a viewport point, or `-1` when the point
+is not over a block the builder could map (a spacer, an empty list item).
+
+## 10. Protected Virtual Methods / Event Handlers
+
+#### void mousePressEvent(QMouseEvent *event) [override]
+
+Base: `QTextBrowser`. Gives the code-box copy button first refusal, then remembers
+where the press landed.
+
+#### void mouseReleaseEvent(QMouseEvent *event) [override]
+
+Base: `QTextBrowser`. A release close to the press, not on a link, emits
+`sourceLineActivated` with `sourceLineAt(pos)`; a drag is left alone as a
+selection.
+
+#### void paintEvent(QPaintEvent *event) [override]
+
+Base: `QTextBrowser`. Draws the copy button over the hovered code box.
 
 ## 11. Ownership and Lifecycle
 

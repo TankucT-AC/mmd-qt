@@ -20,7 +20,10 @@
 #include <QTextList>
 #include <QTextTable>
 #include <QTextTableCell>
+#include <QTextTableCellFormat>
 #include <QUrl>
+
+#include <functional>
 
 class MarkdownTest : public QObject
 {
@@ -50,6 +53,7 @@ private slots:
     void linkSpan();
     void strikethroughSpan();
     void gfmTable();
+    void tableGridLinesUseTheBorderColor();
     void imageResolvesAgainstBaseDir();
     void animatedImageBecomesObject();
     void svgIsRasterisedWithAntialiasing();
@@ -63,6 +67,8 @@ private slots:
     void displayMathDoesNotStealTheNeighbourParagraph();
     void escapedDollarStaysLiteral();
     void mathInsideCodeStaysLiteral();
+    void blocksRecordTheirSourceLine();
+    void rulesLinksAndImagesMapToTheirLine();
 
 private:
     struct FoundMath {
@@ -403,6 +409,125 @@ void MarkdownTest::gfmTable()
     QCOMPARE(table->columns(), 2);
     QCOMPARE(table->cellAt(0, 0).firstCursorPosition().block().text(), QStringLiteral("a"));
     QCOMPARE(table->cellAt(1, 1).firstCursorPosition().block().text(), QStringLiteral("2"));
+}
+
+void MarkdownTest::blocksRecordTheirSourceLine()
+{
+    // Click-to-source needs to know which line of the source a rendered block
+    // came from; the builder is where that mapping can be produced, because it
+    // is the only thing that sees the source and the blocks together.
+    const QString markdown = QStringLiteral(
+        "# Title\n"
+        "\n"
+        "first paragraph\n"
+        "\n"
+        "second paragraph\n"
+        "\n"
+        "```\n"
+        "code line\n"
+        "```\n"
+        "\n"
+        "- item\n");
+    QTextDocument document;
+    render(&document, markdown);
+
+    const QVector<QPair<QString, int>> expected = {
+        {QStringLiteral("Title"), 0},
+        {QStringLiteral("first paragraph"), 2},
+        {QStringLiteral("second paragraph"), 4},
+        {QStringLiteral("code line"), 7},
+        {QStringLiteral("item"), 10},
+    };
+
+    for (const auto &pair : expected) {
+        QTextBlock block = document.firstBlock();
+        while (block.isValid() && block.text() != pair.first)
+            block = block.next();
+
+        QVERIFY2(block.isValid(), qPrintable(QStringLiteral("no block %1").arg(pair.first)));
+        const QVariant line = block.blockFormat().property(MarkdownBuilder::sourceLineKey);
+        QVERIFY2(line.isValid(), qPrintable(QStringLiteral("block %1 has no source line").arg(pair.first)));
+        QCOMPARE(line.toInt(), pair.second);
+    }
+}
+
+void MarkdownTest::rulesLinksAndImagesMapToTheirLine()
+{
+    // These blocks have no literal text of their own to search for: a rule is
+    // found by its shape, and a link or an image opens its block before any text
+    // arrives. Each still has to land on its own line rather than the line of
+    // whatever came before it.
+    const QString markdown = QStringLiteral(
+        "intro paragraph\n"
+        "\n"
+        "---\n"
+        "\n"
+        "[a link on its own](https://example.org)\n"
+        "\n"
+        "![missing image](does-not-exist.png)\n");
+    QTextDocument document;
+    render(&document, markdown);
+
+    const auto lineOf = [&document](const std::function<bool(const QString &)> &matches) {
+        for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+            if (!matches(block.text()))
+                continue;
+            const QVariant line = block.blockFormat().property(MarkdownBuilder::sourceLineKey);
+            return line.isValid() ? line.toInt() : -999;
+        }
+        return -999;
+    };
+
+    QCOMPARE(lineOf([](const QString &text) {
+                 return text.startsWith(QStringLiteral("intro"));
+             }),
+             0);
+    QCOMPARE(lineOf([](const QString &text) {
+                 return text.startsWith(QString(QChar(0x2500)));
+             }),
+             2);
+    QCOMPARE(lineOf([](const QString &text) {
+                 return text == QStringLiteral("a link on its own");
+             }),
+             4);
+    QCOMPARE(lineOf([](const QString &text) {
+                 return text.startsWith(QStringLiteral("[image:"));
+             }),
+             6);
+}
+
+void MarkdownTest::tableGridLinesUseTheBorderColor()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("| a | b |\n| --- | --- |\n| 1 | 2 |\n"));
+
+    // QTextTableFormat::setBorderBrush() paints only the outer frame; the grid
+    // between the cells is drawn from each cell's own border. Without one the
+    // lines come out white, which the light theme cannot show.
+    const QColor expected = ThemeDefinition::light().markdown.tableBorder;
+
+    QTextTable *table = nullptr;
+    for (QTextFrame *frame : document.rootFrame()->childFrames()) {
+        if (auto *candidate = qobject_cast<QTextTable *>(frame)) {
+            table = candidate;
+            break;
+        }
+    }
+    QVERIFY(table != nullptr);
+
+    for (int row = 0; row < table->rows(); ++row) {
+        for (int column = 0; column < table->columns(); ++column) {
+            const QTextTableCellFormat format = table->cellAt(row, column).format().toTableCellFormat();
+            QCOMPARE(format.topBorder(), 1.0);
+            QCOMPARE(format.bottomBorder(), 1.0);
+            QCOMPARE(format.leftBorder(), 1.0);
+            QCOMPARE(format.rightBorder(), 1.0);
+            for (const QBrush &brush : {format.topBorderBrush(), format.bottomBorderBrush(), format.leftBorderBrush(), format.rightBorderBrush()}) {
+                QVERIFY2(brush.color() == expected,
+                         qPrintable(QStringLiteral("cell %1,%2 border is %3, expected %4").arg(row).arg(column).arg(brush.color().name(), expected.name())));
+            }
+        }
+    }
 }
 
 void MarkdownTest::imageResolvesAgainstBaseDir()

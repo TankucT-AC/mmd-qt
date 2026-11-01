@@ -5,9 +5,12 @@
   mmd-qt app icon: a two-pane glyph — a rounded tile split into a "source"
   half (dim code lines) and a "preview" half (an accent panel), the essence of
   the application. Palette: surface #16191f, dim #8b949e, accent #58a6ff.
+
+  No outline stroke: at 16 px a 4-unit stroke rasterises to a quarter of a pixel
+  and reads as a ragged grey ring, so the tile's own edge is the shape.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
-  <rect x="16" y="16" width="224" height="224" rx="54" fill="#16191f" stroke="#2b323d" stroke-width="4"/>
+  <rect x="16" y="16" width="224" height="224" rx="54" fill="#16191f"/>
   <rect x="124" y="44" width="8" height="168" rx="4" fill="#0d1014"/>
 
   <!-- source pane: dim code lines -->

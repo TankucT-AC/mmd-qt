@@ -204,6 +204,20 @@ bool MarkdownEditor::gotoHeading(int index)
     return true;
 }
 
+void MarkdownEditor::gotoSourceLine(int line)
+{
+    if (line < 0)
+        return;
+
+    const QTextBlock block = document()->findBlockByLineNumber(line);
+    if (!block.isValid())
+        return;
+
+    QTextCursor cursor(block);
+    setTextCursor(cursor);
+    centerCursor();
+}
+
 void MarkdownEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
 {
     QPainter painter(m_lineNumberArea);
