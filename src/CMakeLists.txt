@@ -49,5 +49,6 @@ target_link_libraries(mmd_core
 )
 add_executable(mmd
     main.cpp
+    ../resources/resources.qrc
 )
 target_link_libraries(mmd PRIVATE mmd_core)

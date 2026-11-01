@@ -165,7 +165,7 @@ Relative link: [the styleguide](STYLEGUIDE.md) and [contributing](CONTRIBUTING.m
 
 Static PNG (relative path):
 
-![mmd-qt logo](assets/logo.png)
+![mmd-qt logo](resources/logo.svg)
 
 JPEG:
 

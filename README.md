@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="resources/logo-256.png" alt="mmd-qt logo" width="120" />
+
 # mmd-qt
 
 **A fast, native, two-pane Markdown viewer and editor — plain Qt 6 Widgets, no web engine.**
