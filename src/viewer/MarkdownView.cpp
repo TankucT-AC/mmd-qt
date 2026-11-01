@@ -16,7 +16,6 @@
 #include <QGuiApplication>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPainterPath>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBlock>
@@ -302,44 +301,41 @@ void MarkdownView::paintEvent(QPaintEvent *event)
 void MarkdownView::drawCopyButton(QPainter &painter, const QRect &button, bool copied) const
 {
     painter.save();
-    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::Antialiasing, false); // sharp, flat corners
 
     const QColor ink = m_style.theme.markdown.codeText;
-    constexpr float kChipAlpha = 26.0f / 255.0f;
+    constexpr float kChipAlpha = 30.0f / 255.0f;
     QColor chip = ink;
-    chip.setAlpha(26);
+    chip.setAlpha(30);
     QColor border = ink;
-    border.setAlpha(48);
+    border.setAlpha(56);
     painter.setPen(QPen(border, 1));
     painter.setBrush(chip);
-    painter.drawRoundedRect(button.adjusted(0, 0, -1, -1), 6, 6);
+    painter.drawRect(button.adjusted(0, 0, -1, -1)); // sharp square, no rounding
 
     const QColor glyph = m_style.theme.markdown.weakText;
     if (copied) {
-        QPainterPath tick;
-        tick.moveTo(button.left() + 8.0, button.top() + 13.5);
-        tick.lineTo(button.left() + 11.5, button.top() + 17.0);
-        tick.lineTo(button.left() + 18.0, button.top() + 9.5);
-        painter.setPen(QPen(glyph, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawPath(tick);
+        // A sharp tick.
+        painter.setPen(QPen(glyph, 2));
+        painter.drawLine(button.left() + 8, button.top() + 13, button.left() + 11, button.top() + 16);
+        painter.drawLine(button.left() + 11, button.top() + 16, button.left() + 18, button.top() + 9);
     } else {
-        // Two overlapping sheets: the front one is filled to occlude the back.
+        // Two overlapping sheets; the front one is filled to occlude the back.
         const QColor under = m_style.theme.markdown.codeBackground;
         const QColor chipOpaque = QColor::fromRgbF(under.redF() * (1 - kChipAlpha) + ink.redF() * kChipAlpha,
                                                    under.greenF() * (1 - kChipAlpha) + ink.greenF() * kChipAlpha,
                                                    under.blueF() * (1 - kChipAlpha) + ink.blueF() * kChipAlpha);
-        const QRectF back(button.left() + 7.0, button.top() + 6.0, 9.0, 11.0);
-        const QRectF front(button.left() + 11.0, button.top() + 10.0, 9.0, 11.0);
-        painter.setPen(QPen(glyph, 1.5));
+        const QRect back(button.left() + 7, button.top() + 6, 9, 10);
+        const QRect front(button.left() + 11, button.top() + 10, 9, 10);
+        painter.setPen(QPen(glyph, 1));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(back, 2.5, 2.5);
+        painter.drawRect(back);
         painter.setBrush(chipOpaque);
         painter.setPen(Qt::NoPen);
-        painter.drawRoundedRect(front, 2.5, 2.5);
-        painter.setPen(QPen(glyph, 1.5));
+        painter.drawRect(front);
+        painter.setPen(QPen(glyph, 1));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(front, 2.5, 2.5);
+        painter.drawRect(front);
     }
 
     painter.restore();
