@@ -75,7 +75,7 @@ void MarkdownView::updateContentMargins()
         available -= bar->width();
     available -= 2 * frameWidth();
 
-    const int margin = qMax(0, (available - m_style.maxContentWidth) / 2);
+    const int margin = (std::max)(0, (available - m_style.maxContentWidth) / 2);
     setViewportMargins(margin, 0, margin, 0);
 }
 
