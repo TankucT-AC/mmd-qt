@@ -9,6 +9,7 @@
 
 #include <QPlainTextEdit>
 #include <QScrollBar>
+#include <QSet>
 #include <QTextBlock>
 #include <QTextBrowser>
 
@@ -18,6 +19,7 @@ class ViewTest : public QObject
 
 private slots:
     void rendersMarkdownIntoDocument();
+    void previewHighlightsFencedCode();
     void themeSwitchRewritesDocument();
     void burstOfChangesCoalescesIntoOneRender();
     void renderIsImmediateWhenIntervalIsZero();
@@ -36,6 +38,21 @@ void ViewTest::rendersMarkdownIntoDocument()
     const QString text = view.document()->toPlainText();
     QVERIFY(text.contains(QStringLiteral("Title")));
     QVERIFY(text.contains(QStringLiteral("text")));
+}
+
+void ViewTest::previewHighlightsFencedCode()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+    view.setMarkdown(QStringLiteral("```cpp\n// note\nint x = 0;\n```\n"));
+
+    QSet<QRgb> colors;
+    for (QTextBlock block = view.document()->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it)
+            colors.insert(it.fragment().charFormat().foreground().color().rgb());
+    }
+    // The comment and the keyword got colors distinct from plain code text.
+    QVERIFY(colors.size() >= 3);
 }
 
 void ViewTest::themeSwitchRewritesDocument()

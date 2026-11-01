@@ -29,6 +29,8 @@ add_library(mmd_core STATIC
     viewer/MarkdownView.cpp
     viewer/GifObjectHandler.h
     viewer/GifObjectHandler.cpp
+    viewer/CodeHighlighter.h
+    viewer/CodeHighlighter.cpp
 )
 
 target_include_directories(mmd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

@@ -4,6 +4,7 @@
 #include "viewer/MarkdownView.h"
 
 #include "core/FontManager.h"
+#include "viewer/CodeHighlighter.h"
 #include "viewer/GifObjectHandler.h"
 
 #include <QAbstractTextDocumentLayout>
@@ -15,6 +16,7 @@
 MarkdownView::MarkdownView(QWidget *parent)
     : QTextBrowser(parent)
     , m_gifHandler(new GifObjectHandler(document(), this))
+    , m_codeHighlighter(new CodeHighlighter)
 {
     setOpenExternalLinks(true);
     setOpenLinks(true);
@@ -27,12 +29,14 @@ MarkdownView::MarkdownView(QWidget *parent)
     connect(m_renderTimer, &QTimer::timeout, this, &MarkdownView::rebuild);
 
     m_style.fonts = FontManager();
+    m_codeHighlighter->setThemeDefinition(m_style.theme);
 }
 
 void MarkdownView::setRenderStyle(const RenderStyle &style)
 {
     m_style = style;
     m_gifHandler->setMaximumWidth(style.maxImageWidth);
+    m_codeHighlighter->setThemeDefinition(style.theme);
     setPalette(style.theme.palette);
     renderNow();
 }
@@ -84,6 +88,7 @@ void MarkdownView::rebuild()
     const QString anchorText = cursorForPosition(QPoint(0, 0)).block().text();
 
     MarkdownBuilder::build(document(), m_source, m_style);
+    m_codeHighlighter->highlight(document());
 
     // Prefer to keep the anchor block visually in place; fall back to the
     // absolute scroll offset when it cannot be found (e.g. the block was

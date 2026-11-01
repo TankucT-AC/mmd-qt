@@ -9,6 +9,7 @@
 
 class QTimer;
 class GifObjectHandler;
+class CodeHighlighter;
 
 /*
  * Preview pane: renders markdown source into its QTextDocument and keeps the
@@ -54,4 +55,5 @@ private:
     QString m_source;
     QTimer *m_renderTimer = nullptr;
     GifObjectHandler *m_gifHandler = nullptr;
+    CodeHighlighter *m_codeHighlighter = nullptr;
 };
