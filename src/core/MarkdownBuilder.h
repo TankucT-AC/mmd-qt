@@ -59,6 +59,8 @@ public:
         checkboxSizeKey,
         chipTextKey,
         chipKindKey,
+        mathSourceKey,
+        mathDisplayKey,
     };
 
     // QTextCharFormat object type used for animated images. The viewer
@@ -68,6 +70,9 @@ public:
     static constexpr int checkboxObjectType = QTextFormat::UserObject + 2;
     // Object type used for inline "chips": remote-image badges and <kbd> keys.
     static constexpr int chipObjectType = QTextFormat::UserObject + 3;
+    // Object type used for LaTeX formulas ($...$ and $$...$$); the viewer
+    // draws them through MathRenderer.
+    static constexpr int mathObjectType = QTextFormat::UserObject + 4;
 
     // Kind of an inline chip, stored under chipKindKey.
     enum class ChipKind : int {

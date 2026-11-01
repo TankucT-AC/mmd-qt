@@ -31,6 +31,12 @@ public:
     // every code block on the next highlight() call.
     void setThemeDefinition(const ThemeDefinition &theme);
 
+    // Caps the work a single pass is allowed to do, in QString characters.
+    // -1 means "no limit" and is the default: for a document of ordinary size
+    // there is nothing to gain from a ceiling, but one pathological block can
+    // otherwise stall the window.
+    void setLimits(int maxBlockChars, int maxTotalChars);
+
     void highlight(QTextDocument *document);
 
 protected:
@@ -47,4 +53,6 @@ private:
     KSyntaxHighlighting::Repository m_repository;
     ThemeDefinition m_themeDefinition;
     QTextBlock m_block; // block currently being highlighted
+    int m_maxBlockChars = -1;
+    int m_maxTotalChars = -1;
 };

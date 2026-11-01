@@ -58,13 +58,24 @@ private slots:
     void softBreakStaysOneParagraph();
     void emptyDocument();
     void missingImageShowsPlaceholder();
+    void inlineMathBecomesAnObject();
+    void displayMathIsMarkedAndCentred();
+    void displayMathDoesNotStealTheNeighbourParagraph();
+    void escapedDollarStaysLiteral();
+    void mathInsideCodeStaysLiteral();
 
 private:
+    struct FoundMath {
+        QString source;
+        bool display = false;
+    };
+
     void render(QTextDocument *document, const QString &markdown, const QString &baseDir = QString());
     static QTextCharFormat formatAt(const QTextBlock &block, int position);
     static QImage renderImage(QTextDocument *document, int width);
     static int codeLeftEdge(const QImage &image, int row, QRgb code);
     static const QColor &codeColor();
+    static QVector<FoundMath> mathObjectsIn(const QTextDocument *document);
 };
 
 const QColor &MarkdownTest::codeColor()
@@ -691,6 +702,122 @@ void MarkdownTest::readmeRendersWithoutLiteralHtml()
     QVERIFY(!text.contains(QStringLiteral("<div")));
     QVERIFY(!text.contains(QStringLiteral("<summary><strong>")));
     QVERIFY(!text.contains(QStringLiteral("<img")));
+}
+
+QVector<MarkdownTest::FoundMath> MarkdownTest::mathObjectsIn(const QTextDocument *document)
+{
+    QVector<FoundMath> found;
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (!fragment.isValid() || fragment.charFormat().objectType() != MarkdownBuilder::mathObjectType)
+                continue;
+
+            FoundMath entry;
+            entry.source = fragment.charFormat().stringProperty(MarkdownBuilder::mathSourceKey);
+            entry.display = fragment.charFormat().property(MarkdownBuilder::mathDisplayKey).toBool();
+            found.append(entry);
+        }
+    }
+    return found;
+}
+
+void MarkdownTest::inlineMathBecomesAnObject()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("Euler: $e^{i\\pi} + 1 = 0$ indeed\n"));
+
+    const QVector<FoundMath> math = mathObjectsIn(&document);
+    QCOMPARE(math.size(), 1);
+    QCOMPARE(math.at(0).source, QStringLiteral("e^{i\\pi} + 1 = 0"));
+    QCOMPARE(math.at(0).display, false);
+}
+
+void MarkdownTest::displayMathIsMarkedAndCentred()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("Before\n\n$$\n\\int_0^1 x\\,dx\n$$\n\nAfter\n"));
+
+    const QVector<FoundMath> math = mathObjectsIn(&document);
+    QCOMPARE(math.size(), 1);
+    QCOMPARE(math.at(0).source, QStringLiteral("\\int_0^1 x\\,dx"));
+    QCOMPARE(math.at(0).display, true);
+
+    // The formula stands in a block of its own, and that block is centred.
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+        bool hasMath = false;
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().isValid() && it.fragment().charFormat().objectType() == MarkdownBuilder::mathObjectType)
+                hasMath = true;
+        }
+        if (!hasMath)
+            continue;
+        QVERIFY2(block.blockFormat().alignment() & Qt::AlignHCenter, "the display-formula block is not centred");
+        return;
+    }
+    QFAIL("no block carries the display formula");
+}
+
+void MarkdownTest::displayMathDoesNotStealTheNeighbourParagraph()
+{
+    // md4c glues a standalone $$...$$ to the paragraph before it: its lazy-math
+    // rule swallows the blank line, so the display span arrives inside the text
+    // paragraph. The builder must split it off -- the text keeps its own,
+    // left-aligned block, and the formula gets a centred one.
+    QTextDocument document;
+    render(&document, QStringLiteral("Text line before.\n\n$$\nf(x)\n$$\n\nText line after.\n"));
+
+    int index = 0;
+    int mathBlock = -1;
+    int textBlock = -1;
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next(), ++index) {
+        const bool hasMath = block.text().contains(QChar::ObjectReplacementCharacter);
+        if (hasMath && mathBlock < 0)
+            mathBlock = index;
+        if (block.text().contains(QStringLiteral("Text line before.")))
+            textBlock = index;
+    }
+    QVERIFY2(mathBlock >= 0 && mathBlock != textBlock, "the display formula was not split into its own block");
+
+    const QTextBlock formula = [&document, mathBlock] {
+        QTextBlock block = document.firstBlock();
+        for (int i = 0; i < mathBlock; ++i)
+            block = block.next();
+        return block;
+    }();
+    QVERIFY2(formula.blockFormat().alignment() & Qt::AlignHCenter, "the formula block is not centred");
+
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+        if (block.text().contains(QStringLiteral("Text line before.")))
+            QVERIFY2(!(block.blockFormat().alignment() & Qt::AlignHCenter), "the neighbour paragraph was centred instead");
+        if (block.text().contains(QStringLiteral("Text line after.")))
+            QVERIFY2(!(block.blockFormat().alignment() & Qt::AlignHCenter), "the trailing paragraph was centred instead");
+    }
+}
+
+void MarkdownTest::escapedDollarStaysLiteral()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("Costs \\$5 and \\$10\n"));
+
+    QVERIFY(mathObjectsIn(&document).isEmpty());
+    QCOMPARE(document.firstBlock().text(), QStringLiteral("Costs $5 and $10"));
+}
+
+void MarkdownTest::mathInsideCodeStaysLiteral()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("Use `$x^2$` inline and\n\n```\n$a+b$\n```\n"));
+
+    QVERIFY(mathObjectsIn(&document).isEmpty());
+    QVERIFY(document.firstBlock().text().contains(QStringLiteral("$x^2$")));
+    bool fenceHasDollars = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+        if (block.blockFormat().intProperty(MarkdownBuilder::kindKey) == int(MarkdownBuilder::BlockKind::Code)
+            && block.text().contains(QStringLiteral("$a+b$")))
+            fenceHasDollars = true;
+    }
+    QVERIFY(fenceHasDollars);
 }
 
 QTEST_MAIN(MarkdownTest)

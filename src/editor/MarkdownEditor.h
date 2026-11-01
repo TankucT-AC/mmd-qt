@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "core/DocumentLimits.h"
+#include "core/FindState.h"
 #include "core/Theme.h"
 
 #include <QPlainTextEdit>
@@ -24,6 +26,29 @@ public:
 
     void setTheme(const ThemeDefinition &theme);
 
+    // Applies the document-size policy. Above a threshold the markdown
+    // highlighter is detached: re-highlighting a huge file on every keystroke
+    // costs far more than the colours are worth.
+    void setDocumentLimits(const DocumentLimits &limits);
+
+    void setHighlightingEnabled(bool enabled);
+    bool highlightingEnabled() const
+    {
+        return m_highlightingEnabled;
+    }
+
+    // Search decorations. The editor owns them because Qt allows only a single
+    // ExtraSelections list: the current-line tint and the search hits have to be
+    // composed into one call. The caret follows the current hit, so the user can
+    // keep typing from there.
+    void setFindMatches(const QVector<FindState::Match> &matches, int currentIndex);
+    void clearFindMatches();
+
+    // Moves the caret to the index-th ATX heading line of the source and selects
+    // it. Returns false when the source has no such heading — which is how a
+    // caller finds out that the renderer and the scan disagree.
+    bool gotoHeading(int index);
+
     // Replaces the whole document and re-highlights. Programmatic text
     // replacement needs an explicit rehighlight: the synchronous pass Qt runs
     // during setPlainText writes to a layout that is discarded afterwards.
@@ -37,7 +62,7 @@ protected:
 private slots:
     void updateLineNumberAreaWidth();
     void updateLineNumberArea(const QRect &rect, int dy);
-    void highlightCurrentLine();
+    void applyExtraSelections();
 
 private:
     class LineNumberArea;
@@ -47,4 +72,7 @@ private:
     MarkdownHighlighter *m_highlighter = nullptr;
     LineNumberArea *m_lineNumberArea = nullptr;
     ThemeDefinition m_theme;
+    bool m_highlightingEnabled = true;
+    QVector<FindState::Match> m_findMatches;
+    int m_findCurrent = -1;
 };

@@ -8,17 +8,21 @@
 #include "viewer/ChipObjectHandler.h"
 #include "viewer/CodeHighlighter.h"
 #include "viewer/GifObjectHandler.h"
+#include "viewer/MathObjectHandler.h"
 
 #include <QAbstractTextDocumentLayout>
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QGuiApplication>
+#include <QLocale>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBlock>
+#include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QTextFrame>
 #include <QTimer>
@@ -30,6 +34,11 @@ namespace
 {
 // Coalesces bursts of edits into a single render; small enough to feel instant.
 constexpr int kDefaultRenderIntervalMs = 40;
+
+// A heading is scrolled to sit this far below the top edge, and the same slack
+// decides which heading counts as current. Sharing one value keeps the two
+// consistent: the section just scrolled to is always the one highlighted.
+constexpr int kHeadingTopGap = 8;
 }
 
 MarkdownView::MarkdownView(QWidget *parent)
@@ -37,6 +46,7 @@ MarkdownView::MarkdownView(QWidget *parent)
     , m_gifHandler(new GifObjectHandler(document(), this))
     , m_checkboxHandler(new CheckboxObjectHandler(this))
     , m_chipHandler(new ChipObjectHandler(this))
+    , m_mathHandler(new MathObjectHandler(this))
     , m_codeHighlighter(new CodeHighlighter)
 {
     setOpenExternalLinks(false);
@@ -47,6 +57,7 @@ MarkdownView::MarkdownView(QWidget *parent)
     document()->documentLayout()->registerHandler(MarkdownBuilder::gifObjectType, m_gifHandler);
     document()->documentLayout()->registerHandler(MarkdownBuilder::checkboxObjectType, m_checkboxHandler);
     document()->documentLayout()->registerHandler(MarkdownBuilder::chipObjectType, m_chipHandler);
+    document()->documentLayout()->registerHandler(MarkdownBuilder::mathObjectType, m_mathHandler);
 
     m_renderTimer = new QTimer(this);
     m_renderTimer->setSingleShot(true);
@@ -76,6 +87,13 @@ void MarkdownView::setRenderStyle(const RenderStyle &style)
     m_gifHandler->setMaximumWidth(style.maxImageWidth);
     m_checkboxHandler->setColors(style.theme.markdown.weakText, style.theme.markdown.weakText, style.theme.palette.color(QPalette::Base));
     m_chipHandler->setColors(style.theme.markdown.codeBackground, style.theme.markdown.tableBorder, style.theme.markdown.weakText);
+    m_mathHandler->setBodyFont(style.fonts.bodyFont());
+    // Formulas are typeset at the text's em, which the document measures in
+    // device-independent pixels -- not the font's points.
+    const QFont bodyFont = style.fonts.bodyFont();
+    m_mathHandler->setEmSize(bodyFont.pixelSize() > 0 ? qreal(bodyFont.pixelSize()) : bodyFont.pointSizeF() * logicalDpiY() / 72.0);
+    m_mathHandler->setColor(style.theme.palette.color(QPalette::Text));
+    m_mathHandler->setDevicePixelRatio(devicePixelRatioF());
     m_codeHighlighter->setThemeDefinition(style.theme);
     setPalette(style.theme.palette);
     updateContentMargins();
@@ -90,6 +108,39 @@ void MarkdownView::resizeEvent(QResizeEvent *event)
     QTimer::singleShot(0, this, [this] {
         updateContentMargins();
     });
+}
+
+void MarkdownView::scrollContentsBy(int dx, int dy)
+{
+    QTextBrowser::scrollContentsBy(dx, dy);
+    updateVisibleHeading();
+}
+
+void MarkdownView::updateVisibleHeading()
+{
+    // The reading position is the top edge of the pane. Once the pane is scrolled
+    // to the end of the document there is nothing left to bring up, so the last
+    // visible line counts instead — otherwise clicking the final section would
+    // leave the outline pointing at the head of the document.
+    const QScrollBar *bar = verticalScrollBar();
+    const bool atBottom = bar->maximum() > 0 && bar->value() >= bar->maximum();
+    const int readingLine = atBottom ? viewport()->height() : kHeadingTopGap;
+
+    int found = -1;
+    for (QTextBlock block = document()->firstBlock(); block.isValid(); block = block.next()) {
+        if (block.blockFormat().intProperty(MarkdownBuilder::kindKey) != int(MarkdownBuilder::BlockKind::Heading))
+            continue;
+
+        QTextCursor cursor(block);
+        if (cursorRect(cursor).top() > readingLine)
+            break; // this one is still below the fold
+        found = block.blockNumber();
+    }
+
+    if (found == m_visibleHeading)
+        return;
+    m_visibleHeading = found;
+    emit visibleHeadingChanged(found);
 }
 
 void MarkdownView::updateContentMargins()
@@ -120,11 +171,18 @@ void MarkdownView::setBaseDir(const QString &directory)
 void MarkdownView::setMarkdown(const QString &markdown)
 {
     m_source = markdown;
-    if (m_renderTimer->interval() == 0) {
+    // A fresh edit gives up any earlier "render anyway": keeping a huge document
+    // live is exactly what the size policy exists to prevent.
+    m_previewRequested = false;
+
+    const int interval = effectiveRenderInterval();
+    if (interval == 0) {
         rebuild();
     } else if (!m_renderTimer->isActive()) {
         // Coalesce: the first change arms the timer, later ones are absorbed.
-        m_renderTimer->start();
+        // A degraded document arms it with a longer interval, so a burst of
+        // keystrokes still costs one render rather than one per key.
+        m_renderTimer->start(interval);
     }
 }
 
@@ -150,8 +208,61 @@ void MarkdownView::setRenderInterval(int milliseconds)
     m_renderTimer->setInterval(milliseconds);
 }
 
+int MarkdownView::effectiveRenderInterval() const
+{
+    // The interval configured by the caller is the floor; a degraded document
+    // may ask for a longer one, so typing costs at most one render per interval
+    // instead of one per keystroke.
+    if (!m_limits.degraded())
+        return m_renderTimer->interval();
+    return (std::max)(m_renderTimer->interval(), m_limits.renderIntervalMs());
+}
+
+void MarkdownView::setDocumentLimits(const DocumentLimits &limits)
+{
+    const bool wasPaused = previewPaused();
+
+    m_limits = limits;
+    m_previewRequested = false;
+    m_codeHighlighter->setLimits(limits.codeHighlightMaxBlockChars(), limits.codeHighlightMaxTotalChars());
+
+    // Entering the paused state is cheap, so put the notice up at once.
+    // Leaving it must not redraw what is on screen: that could be the very
+    // document we are replacing. The caller's setMarkdown() renders the new one.
+    if (previewPaused()) {
+        if (!wasPaused)
+            rebuild();
+    } else {
+        m_showingPlaceholder = false;
+    }
+}
+
+bool MarkdownView::previewPaused() const
+{
+    return !m_limits.previewEnabled() && !m_previewRequested;
+}
+
+void MarkdownView::renderAnyway()
+{
+    m_previewRequested = true;
+    m_renderTimer->stop();
+    rebuild();
+}
+
 void MarkdownView::rebuild()
 {
+    if (previewPaused()) {
+        // The placeholder is cheap, but rebuilding it on every keystroke is
+        // still pointless work: once it is up, leave it alone.
+        if (!m_showingPlaceholder)
+            buildPlaceholder();
+        return;
+    }
+    m_showingPlaceholder = false;
+
+    QElapsedTimer timer;
+    timer.start();
+
     QScrollBar *scrollBar = verticalScrollBar();
     const int previousValue = scrollBar->value();
     const QString anchorText = cursorForPosition(QPoint(0, 0)).block().text();
@@ -190,7 +301,108 @@ void MarkdownView::rebuild()
         scrollBar->setValue(previousValue);
     }
 
+    m_lastRenderMs = int(timer.elapsed());
+    updateVisibleHeading();
     emit rendered();
+}
+
+void MarkdownView::buildPlaceholder()
+{
+    QTextDocument *target = document();
+    target->clear();
+    m_gifHandler->syncToDocument(); // stops animations from the previous render
+
+    const ThemeDefinition &theme = m_style.theme;
+
+    QTextCharFormat title;
+    title.setForeground(theme.markdown.heading);
+    title.setFont(m_style.fonts.headingFont(3));
+    title.setFontWeight(QFont::Bold);
+
+    QTextCharFormat body;
+    body.setForeground(theme.markdown.weakText);
+    body.setFont(m_style.fonts.bodyFont());
+
+    // A link, not a button: the renderer already routes anchors to the viewer,
+    // so the action needs no extra widget on top of the document.
+    QTextCharFormat action;
+    action.setForeground(theme.markdown.link);
+    action.setFont(m_style.fonts.bodyFont());
+    action.setAnchor(true);
+    action.setAnchorHref(QStringLiteral("mmd-action:render-preview"));
+
+    QTextBlockFormat centred;
+    centred.setAlignment(Qt::AlignHCenter);
+
+    QTextCursor cursor(target);
+    cursor.setBlockFormat(centred);
+    cursor.insertText(tr("Preview paused"), title);
+    cursor.insertBlock(centred);
+    cursor.insertText(
+        tr("This document is %1. Rendering it on every keystroke would freeze the window.").arg(QLocale().formattedDataSize(m_limits.sizeBytes())),
+        body);
+    cursor.insertBlock(centred);
+    cursor.insertText(tr("Render anyway"), action);
+
+    m_showingPlaceholder = true;
+    m_lastRenderMs = 0;
+    updateVisibleHeading();
+    emit rendered();
+}
+
+void MarkdownView::setFindMatches(const QVector<FindState::Match> &matches, int currentIndex)
+{
+    m_findMatches = matches;
+    m_findCurrent = currentIndex;
+    applyFindSelections();
+
+    if (currentIndex < 0 || currentIndex >= m_findMatches.size())
+        return;
+
+    // A read-only pane keeps no caret of its own, so the hit is brought into
+    // view by scrolling: cursorRect() reports where the match ended up.
+    const FindState::Match &match = m_findMatches.at(currentIndex);
+    QTextCursor cursor(document());
+    cursor.setPosition(match.position);
+    const int top = cursorRect(cursor).top();
+    verticalScrollBar()->setValue(verticalScrollBar()->value() + top - height() / 3);
+}
+
+void MarkdownView::clearFindMatches()
+{
+    if (m_findMatches.isEmpty() && m_findCurrent < 0)
+        return;
+    m_findMatches.clear();
+    m_findCurrent = -1;
+    applyFindSelections();
+}
+
+void MarkdownView::applyFindSelections()
+{
+    if (m_findMatches.isEmpty()) {
+        setExtraSelections({});
+        return;
+    }
+
+    QList<QTextEdit::ExtraSelection> selections;
+    selections.reserve(m_findMatches.size());
+    for (int i = 0; i < m_findMatches.size(); ++i) {
+        const FindState::Match &match = m_findMatches.at(i);
+        const bool isCurrent = i == m_findCurrent;
+
+        QTextEdit::ExtraSelection selection;
+        QColor background = palette().color(QPalette::Highlight);
+        if (!isCurrent)
+            background.setAlpha(90); // a hint of the same theme colour
+        selection.format.setBackground(background);
+        if (isCurrent)
+            selection.format.setForeground(palette().color(QPalette::HighlightedText));
+        selection.cursor = QTextCursor(document());
+        selection.cursor.setPosition(match.position);
+        selection.cursor.setPosition(match.position + match.length, QTextCursor::KeepAnchor);
+        selections.append(selection);
+    }
+    setExtraSelections(selections);
 }
 QVector<QTextFrame *> MarkdownView::codeFrames() const
 {
@@ -341,6 +553,20 @@ void MarkdownView::drawCopyButton(QPainter &painter, const QRect &button, bool c
     painter.restore();
 }
 
+bool MarkdownView::scrollToBlock(int blockNumber)
+{
+    const QTextBlock block = document()->findBlockByNumber(blockNumber);
+    if (!block.isValid())
+        return false;
+
+    QTextCursor cursor(block);
+    const int top = cursorRect(cursor).top();
+    // Land the heading at the top edge, with the same gap the "current section"
+    // rule tolerates, so the outline marks the section it just jumped to.
+    verticalScrollBar()->setValue(verticalScrollBar()->value() + top - kHeadingTopGap);
+    return true;
+}
+
 bool MarkdownView::scrollToAnchor(const QString &slug)
 {
     for (QTextBlock block = document()->firstBlock(); block.isValid(); block = block.next()) {
@@ -359,6 +585,13 @@ bool MarkdownView::scrollToAnchor(const QString &slug)
 
 void MarkdownView::handleAnchor(const QUrl &url)
 {
+    // Our own links (the paused-preview action) never leave the application.
+    if (url.scheme() == QLatin1String("mmd-action")) {
+        if (url.path() == QLatin1String("render-preview"))
+            renderAnyway();
+        return;
+    }
+
     // In-document anchors scroll the preview instead of navigating away (which
     // would blank the view).
     if (url.hasFragment() && (url.path().isEmpty() || url.scheme() == QLatin1String("file"))) {

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "core/DocumentLimits.h"
+#include "core/FindState.h"
 #include "core/MarkdownBuilder.h"
 
 #include <QTextBrowser>
@@ -14,6 +16,7 @@ class GifObjectHandler;
 class CodeHighlighter;
 class CheckboxObjectHandler;
 class ChipObjectHandler;
+class MathObjectHandler;
 
 /*
  * Preview pane: renders markdown source into its QTextDocument and keeps the
@@ -40,6 +43,41 @@ public:
     const RenderStyle &renderStyle() const;
 
     void setBaseDir(const QString &directory);
+
+    // Applies the document-size policy. For a document past the preview limit
+    // the pane shows a short explanation instead of the render, so editing
+    // stays responsive; renderAnyway() overrides that once.
+    void setDocumentLimits(const DocumentLimits &limits);
+
+    // Renders the current source even though the limits said not to. Wired to
+    // the "Render anyway" link of the paused-preview placeholder.
+    void renderAnyway();
+
+    // True while the source is too big to render without an explicit request.
+    bool previewPaused() const;
+
+    // Scrolls the heading that lives in this rendered block to the top of the
+    // pane. Returns false when no such block exists.
+    bool scrollToBlock(int blockNumber);
+
+    // The heading currently at the top of the pane, as a block number, or -1
+    // while above the first heading.
+    int visibleHeading() const
+    {
+        return m_visibleHeading;
+    }
+
+    // Duration of the last rebuild in milliseconds; 0 while the preview is
+    // paused. Surfaced in the status bar.
+    int lastRenderMs() const
+    {
+        return m_lastRenderMs;
+    }
+
+    // Search decorations. The pane is read-only, so it highlights the hits and
+    // scrolls the current one into view instead of moving a caret.
+    void setFindMatches(const QVector<FindState::Match> &matches, int currentIndex);
+    void clearFindMatches();
 
     // Schedules a render; calls within the interval are coalesced.
     void setMarkdown(const QString &markdown);
@@ -76,8 +114,13 @@ public:
 signals:
     void rendered();
 
+    // The heading the reader is currently under, as a rendered block number, or
+    // -1 while above the first heading. Drives the outline panel.
+    void visibleHeadingChanged(int blockNumber);
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    void scrollContentsBy(int dx, int dy) override;
     void paintEvent(QPaintEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
@@ -85,20 +128,32 @@ protected:
 
 private:
     void rebuild();
+    void buildPlaceholder();
+    void applyFindSelections();
+    void updateVisibleHeading();
+    int effectiveRenderInterval() const;
     void updateContentMargins();
     void updateHoveredFrame(const QPoint &pos);
     void drawCopyButton(QPainter &painter, const QRect &button, bool copied) const;
     void handleAnchor(const QUrl &url);
 
     RenderStyle m_style;
+    DocumentLimits m_limits;
     QString m_source;
     QTimer *m_renderTimer = nullptr;
     GifObjectHandler *m_gifHandler = nullptr;
     CheckboxObjectHandler *m_checkboxHandler = nullptr;
     ChipObjectHandler *m_chipHandler = nullptr;
+    MathObjectHandler *m_mathHandler = nullptr;
     std::unique_ptr<CodeHighlighter> m_codeHighlighter;
 
     QTextFrame *m_hoveredFrame = nullptr;
     QTextFrame *m_copiedFrame = nullptr;
     QTimer *m_copyFeedbackTimer = nullptr;
+    bool m_showingPlaceholder = false;
+    bool m_previewRequested = false; // the user asked for this one render
+    int m_lastRenderMs = 0;
+    QVector<FindState::Match> m_findMatches;
+    int m_findCurrent = -1;
+    int m_visibleHeading = -1;
 };

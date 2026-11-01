@@ -8,7 +8,9 @@
 #include "viewer/MarkdownView.h"
 
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTextCursor>
@@ -26,6 +28,7 @@ private slots:
     void savingFileWritesToDisk();
     void externalChangeReloadsUnmodifiedDocument();
     void themeModePersistsAcrossWindows();
+    void hugeFileOpensPausedAndQuickly();
 
 private:
     static void typeInto(MarkdownEditor *editor, const QString &text, QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
@@ -175,6 +178,39 @@ void AppTest::themeModePersistsAcrossWindows()
     }
 
     settings.clear();
+}
+
+void AppTest::hugeFileOpensPausedAndQuickly()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("big.md"));
+
+    QByteArray chunk;
+    for (int i = 0; i < 64; ++i)
+        chunk += "# Heading\n\nA prose paragraph with enough words to look like a real document.\n\n";
+    const qsizetype repeats = (6 * 1024 * 1024) / chunk.size() + 1;
+
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    for (qsizetype i = 0; i < repeats; ++i)
+        file.write(chunk);
+    file.close();
+    QVERIFY(QFileInfo(path).size() > 5 * 1024 * 1024);
+
+    MainWindow window;
+    QElapsedTimer timer;
+    timer.start();
+    QVERIFY(window.openFile(path));
+    const qint64 elapsed = timer.elapsed();
+
+    // The preview must not even attempt the render: it would take seconds and
+    // the user would be staring at a frozen window.
+    QVERIFY(window.viewer()->previewPaused());
+    QVERIFY(window.viewer()->document()->toPlainText().contains(QStringLiteral("Preview paused")));
+    QVERIFY(!window.editor()->highlightingEnabled());
+    // Loading and laying out the source may cost something, but not a freeze.
+    QVERIFY2(elapsed < 3000, qPrintable(QStringLiteral("opening took %1 ms").arg(elapsed)));
 }
 
 QTEST_MAIN(AppTest)

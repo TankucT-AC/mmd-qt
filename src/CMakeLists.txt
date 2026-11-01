@@ -11,6 +11,12 @@ add_library(mmd_core STATIC
     app/MainWindow.cpp
     app/ScrollSync.h
     app/ScrollSync.cpp
+    app/FindController.h
+    app/FindController.cpp
+    app/OutlinePanel.h
+    app/OutlinePanel.cpp
+    app/FileTreePanel.h
+    app/FileTreePanel.cpp
     core/Theme.h
     core/Theme.cpp
     core/ThemeManager.h
@@ -23,6 +29,14 @@ add_library(mmd_core STATIC
     core/HtmlFragment.cpp
     core/ImageResolver.h
     core/ImageResolver.cpp
+    core/DocumentLimits.h
+    core/DocumentLimits.cpp
+    core/FindState.h
+    core/FindState.cpp
+    core/Outline.h
+    core/Outline.cpp
+    core/MathRenderer.h
+    core/MathRenderer.cpp
     core/SystemThemeProvider.h
     core/SystemThemeProvider.cpp
     core/MarkdownBuilder.h
@@ -33,6 +47,10 @@ add_library(mmd_core STATIC
     editor/MarkdownHighlighter.cpp
     viewer/MarkdownView.h
     viewer/MarkdownView.cpp
+    viewer/MathObjectHandler.h
+    viewer/MathObjectHandler.cpp
+    viewer/FindBar.h
+    viewer/FindBar.cpp
     viewer/GifObjectHandler.h
     viewer/GifObjectHandler.cpp
     viewer/CheckboxObjectHandler.h
@@ -49,6 +67,7 @@ target_link_libraries(mmd_core
         Qt6::Widgets
         Qt6::Svg
         KF6::SyntaxHighlighting
+        microtex
         md4c
         mmd_warnings
 )

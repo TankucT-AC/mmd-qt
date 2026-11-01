@@ -1,0 +1,22 @@
+Vendored from https://github.com/NanoMichael/MicroTeX
+commit 0e3707f6dafebb121d98b53c64364d16fefe481d
+
+MicroTeX is MIT (see LICENSE). The fonts and XML in res/ carry their own
+licences, kept verbatim under res/fonts/licences and res/*/. Nothing here may
+be stripped when updating.
+
+Local patches (re-apply when updating):
+
+* src/platform/qt/graphic_qt.cpp -- Graphics2D_qt::drawText and
+  TextLayout_qt::draw render glyph outlines via QRawFont::pathForGlyph instead
+  of QPainter::drawText. MicroTeX creates its fonts at a nominal 1pt and does
+  the real scaling through the painter transform; at that pixel size FreeType
+  refuses to rasterise several cmex10 glyphs outright -- the display-size
+  operators (SUMMATION at slot 0x58) and the grown delimiters -- which left
+  the operators and \\left...\\right parens laid out but invisible. Outlines
+  are taken from a 64px font and scaled into the caller's units instead.
+* src/platform/qt/graphic_qt.cpp -- Font_qt uses the static
+  QFontDatabase::addApplicationFont; the instance-based form is deprecated
+  in Qt 6.
+* (none in build files: this project compiles the sources directly, see
+  third_party/CMakeLists.txt)

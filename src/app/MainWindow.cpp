@@ -3,27 +3,37 @@
 
 #include "app/MainWindow.h"
 
+#include "app/FileTreePanel.h"
+#include "app/FindController.h"
+#include "app/OutlinePanel.h"
 #include "app/ScrollSync.h"
 #include "core/FileDocument.h"
 #include "core/SystemThemeProvider.h"
 #include "core/ThemeManager.h"
 #include "editor/MarkdownEditor.h"
+#include "viewer/FindBar.h"
 #include "viewer/MarkdownView.h"
 
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QLabel>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSettings>
 #include <QSplitter>
+#include <QStatusBar>
+#include <QTabWidget>
+#include <QVBoxLayout>
 
 namespace
 {
@@ -76,18 +86,19 @@ MainWindow::MainWindow(QWidget *parent)
 
     applyTheme(m_themes->currentTheme());
     restoreThemeSettings();
+    setFolder(QSettings().value(QStringLiteral("files/folder")).toString());
     updateWindowTitle();
     resize(1200, 800);
 }
 
 QWidget *MainWindow::editorPanel() const
 {
-    return m_editor;
+    return m_editorPane;
 }
 
 QWidget *MainWindow::viewerPanel() const
 {
-    return m_viewer;
+    return m_viewerPane;
 }
 
 QAction *MainWindow::toggleEditorAction() const
@@ -124,15 +135,41 @@ void MainWindow::buildUi()
 {
     m_splitter = new QSplitter(Qt::Horizontal, this);
 
-    m_editor = new MarkdownEditor(m_splitter);
-    m_viewer = new MarkdownView(m_splitter);
+    // Each pane is a container: the find strip lives directly above its view and
+    // hides with it.
+    m_editorPane = new QWidget(m_splitter);
+    m_editorBar = new FindBar(m_editorPane);
+    m_editor = new MarkdownEditor(m_editorPane);
+    auto *editorLayout = new QVBoxLayout(m_editorPane);
+    editorLayout->setContentsMargins(0, 0, 0, 0);
+    editorLayout->setSpacing(0);
+    editorLayout->addWidget(m_editorBar);
+    editorLayout->addWidget(m_editor, 1);
 
-    m_splitter->addWidget(m_editor);
-    m_splitter->addWidget(m_viewer);
+    m_viewerPane = new QWidget(m_splitter);
+    m_viewerBar = new FindBar(m_viewerPane);
+    m_viewer = new MarkdownView(m_viewerPane);
+    auto *viewerLayout = new QVBoxLayout(m_viewerPane);
+    viewerLayout->setContentsMargins(0, 0, 0, 0);
+    viewerLayout->setSpacing(0);
+    viewerLayout->addWidget(m_viewerBar);
+    viewerLayout->addWidget(m_viewer, 1);
+
+    m_splitter->addWidget(m_editorPane);
+    m_splitter->addWidget(m_viewerPane);
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 1);
 
     setCentralWidget(m_splitter);
+
+    m_editorBar->hide();
+    m_viewerBar->hide();
+    m_find = new FindController(m_editor, m_editorBar, m_viewer, m_viewerBar, this);
+
+    m_statusInfo = new QLabel(this);
+    m_statusRender = new QLabel(this);
+    statusBar()->addWidget(m_statusInfo);
+    statusBar()->addPermanentWidget(m_statusRender);
 
     connect(m_editor, &QPlainTextEdit::textChanged, this, [this] {
         m_viewer->setMarkdown(m_editor->toPlainText());
@@ -140,9 +177,39 @@ void MainWindow::buildUi()
     connect(m_splitter, &QSplitter::splitterMoved, this, [this] {
         m_viewer->scheduleRerender();
     });
+    connect(m_viewer, &MarkdownView::rendered, this, &MainWindow::updateRenderStatus);
     m_scrollSync = new ScrollSync(m_editor, m_viewer, this);
 
+    buildSidebar();
+
     m_viewer->setMarkdown(m_editor->toPlainText());
+    updateStatusBar();
+}
+
+void MainWindow::buildSidebar()
+{
+    m_outlinePanel = new OutlinePanel(this);
+    m_filesPanel = new FileTreePanel(this);
+
+    auto *tabs = new QTabWidget(this);
+    tabs->setDocumentMode(true);
+    tabs->addTab(m_outlinePanel, tr("Outline"));
+    tabs->addTab(m_filesPanel, tr("Files"));
+
+    m_sidebar = new QDockWidget(tr("Sidebar"), this);
+    m_sidebar->setObjectName(QStringLiteral("sidebar"));
+    m_sidebar->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_sidebar->setWidget(tabs);
+    addDockWidget(Qt::LeftDockWidgetArea, m_sidebar);
+    resizeDocks({m_sidebar}, {240}, Qt::Horizontal);
+
+    connect(m_viewer, &MarkdownView::rendered, this, &MainWindow::refreshOutline);
+    connect(m_viewer, &MarkdownView::visibleHeadingChanged, m_outlinePanel, &OutlinePanel::setCurrentBlock);
+    connect(m_outlinePanel, &OutlinePanel::entryActivated, this, &MainWindow::activateOutlineEntry);
+    connect(m_filesPanel, &FileTreePanel::fileActivated, this, [this](const QString &path) {
+        if (maybeSave())
+            openFile(path);
+    });
 }
 
 void MainWindow::buildMenus()
@@ -150,24 +217,41 @@ void MainWindow::buildMenus()
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
     fileMenu->addAction(tr("&New"), QKeySequence::New, this, &MainWindow::newFile);
     fileMenu->addAction(tr("&Open…"), QKeySequence::Open, this, &MainWindow::openFileDialog);
+    fileMenu->addAction(tr("Open F&older…"), QKeySequence(QStringLiteral("Ctrl+Shift+O")), this, &MainWindow::openFolderDialog);
     fileMenu->addAction(tr("&Save"), QKeySequence::Save, this, &MainWindow::saveFile);
     fileMenu->addAction(tr("Save &As…"), QKeySequence::SaveAs, this, &MainWindow::saveFileAs);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("&Quit"), QKeySequence(QStringLiteral("Ctrl+Q")), this, &QWidget::close);
 
+    QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
+    editMenu->addAction(tr("&Find…"), QKeySequence::Find, this, [this] {
+        m_find->openForFocusedPane();
+    });
+    editMenu->addAction(tr("Find &Next"), QKeySequence(QStringLiteral("F3")), this, [this] {
+        m_find->findNext();
+    });
+    editMenu->addAction(tr("Find &Previous"), QKeySequence(QStringLiteral("Shift+F3")), this, [this] {
+        m_find->findPrevious();
+    });
+
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
+
+    QAction *sidebarAction = m_sidebar->toggleViewAction();
+    sidebarAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
+    viewMenu->addAction(sidebarAction);
+    viewMenu->addSeparator();
 
     m_toggleEditor = viewMenu->addAction(tr("&Editor"));
     m_toggleEditor->setCheckable(true);
     m_toggleEditor->setChecked(true);
     m_toggleEditor->setShortcut(QStringLiteral("F9"));
-    connect(m_toggleEditor, &QAction::toggled, m_editor, &QWidget::setVisible);
+    connect(m_toggleEditor, &QAction::toggled, m_editorPane, &QWidget::setVisible);
 
     m_toggleViewer = viewMenu->addAction(tr("&Preview"));
     m_toggleViewer->setCheckable(true);
     m_toggleViewer->setChecked(true);
     m_toggleViewer->setShortcut(QStringLiteral("F10"));
-    connect(m_toggleViewer, &QAction::toggled, m_viewer, &QWidget::setVisible);
+    connect(m_toggleViewer, &QAction::toggled, m_viewerPane, &QWidget::setVisible);
 
     QMenu *themeMenu = viewMenu->addMenu(tr("&Theme"));
     auto *group = new QActionGroup(this);
@@ -233,11 +317,86 @@ void MainWindow::applyTheme(const ThemeDefinition &theme)
 
 void MainWindow::applyFileContent(const QString &content, const QString &path)
 {
+    // Whatever was being searched for is now at different offsets, in a
+    // different file.
+    m_find->reset();
+
+    // Decide up front how much work this document is worth, before either pane
+    // sees it: the limits change what setMarkdown() does.
+    m_limits = DocumentLimits::forSize(content.toUtf8().size());
+    m_viewer->setDocumentLimits(m_limits);
+    m_editor->setDocumentLimits(m_limits);
+
     m_viewer->setBaseDir(path.isEmpty() ? QString() : QFileInfo(path).absolutePath());
     m_editor->setMarkdown(content);
     m_editor->document()->setModified(false);
     m_viewer->setMarkdown(content);
+    m_filesPanel->setCurrentFile(path);
+    updateStatusBar();
     updateWindowTitle();
+}
+
+void MainWindow::updateStatusBar()
+{
+    const QString size = QLocale().formattedDataSize(m_limits.sizeBytes());
+    switch (m_limits.tier()) {
+    case DocumentLimits::Tier::Interactive:
+        m_statusInfo->setText(m_limits.sizeBytes() > 0 ? size : QString());
+        break;
+    case DocumentLimits::Tier::Deferred:
+        m_statusInfo->setText(tr("%1 · large file: the preview updates when typing pauses").arg(size));
+        break;
+    case DocumentLimits::Tier::Manual:
+        m_statusInfo->setText(tr("%1 · preview paused: too large to redraw while typing").arg(size));
+        break;
+    }
+}
+
+void MainWindow::updateRenderStatus()
+{
+    if (m_viewer->previewPaused()) {
+        m_statusRender->setText(tr("preview paused"));
+        return;
+    }
+    m_statusRender->setText(tr("rendered in %1 ms").arg(m_viewer->lastRenderMs()));
+}
+
+void MainWindow::openFolderDialog()
+{
+    const QString path = QFileDialog::getExistingDirectory(this, tr("Open Folder"), m_filesPanel->rootDirectory());
+    if (!path.isEmpty())
+        setFolder(path);
+}
+
+void MainWindow::setFolder(const QString &path)
+{
+    if (path.isEmpty() || !QFileInfo(path).isDir())
+        return;
+
+    m_filesPanel->setRootDirectory(path);
+    QSettings().setValue(QStringLiteral("files/folder"), path);
+}
+
+void MainWindow::refreshOutline()
+{
+    m_outline = Outline::fromDocument(*m_viewer->document());
+    m_outlinePanel->setOutline(m_outline);
+    m_outlinePanel->setCurrentBlock(m_viewer->visibleHeading());
+}
+
+void MainWindow::activateOutlineEntry(int index)
+{
+    if (index < 0 || index >= m_outline.size())
+        return;
+
+    const OutlineEntry &entry = m_outline.at(index);
+    m_viewer->scrollToBlock(entry.blockNumber);
+
+    // The editor locates headings by scanning the source, which can disagree
+    // with the renderer on exotic documents. Jumping somewhere wrong would be
+    // worse than not jumping at all, so the two lists have to agree first.
+    if (Outline::headingSourceLines(m_editor->toPlainText()).size() == m_outline.size())
+        m_editor->gotoHeading(index);
 }
 
 void MainWindow::updateWindowTitle()

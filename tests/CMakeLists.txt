@@ -1,83 +1,31 @@
 # SPDX-FileCopyrightText: 2026 mmd-qt contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-add_executable(test_app
-    test_app.cpp
-)
-target_link_libraries(test_app PRIVATE mmd_core Qt6::Test)
+# Every test links the real production library and runs headless, so the suite
+# behaves the same on a developer machine and in CI. Extra arguments after the
+# name are passed on as compile definitions.
+function(mmd_add_test name)
+    add_executable(${name} ${name}.cpp)
+    target_link_libraries(${name} PRIVATE mmd_core Qt6::Test)
+    if(ARGC GREATER 1)
+        target_compile_definitions(${name} PRIVATE ${ARGN})
+    endif()
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endfunction()
 
-add_test(NAME test_app COMMAND test_app)
-set_tests_properties(test_app PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_theme
-    test_theme.cpp
-)
-target_link_libraries(test_theme PRIVATE mmd_core Qt6::Test)
-
-add_test(NAME test_theme COMMAND test_theme)
-set_tests_properties(test_theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_fonts
-    test_fonts.cpp
-)
-target_link_libraries(test_fonts PRIVATE mmd_core Qt6::Test)
-
-add_test(NAME test_fonts COMMAND test_fonts)
-set_tests_properties(test_fonts PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_markdown
-    test_markdown.cpp
-)
-target_link_libraries(test_markdown PRIVATE mmd_core Qt6::Test)
-target_compile_definitions(test_markdown PRIVATE MMD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-
-add_test(NAME test_markdown COMMAND test_markdown)
-set_tests_properties(test_markdown PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_editor
-    test_editor.cpp
-)
-target_link_libraries(test_editor PRIVATE mmd_core Qt6::Test)
-
-add_test(NAME test_editor COMMAND test_editor)
-set_tests_properties(test_editor PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_view
-    test_view.cpp
-)
-target_link_libraries(test_view PRIVATE mmd_core Qt6::Test)
-
-add_test(NAME test_view COMMAND test_view)
-set_tests_properties(test_view PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_html
-    test_html.cpp
-)
-target_link_libraries(test_html PRIVATE mmd_core Qt6::Test)
-
-add_test(NAME test_html COMMAND test_html)
-set_tests_properties(test_html PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_code
-    test_code.cpp
-)
-target_link_libraries(test_code PRIVATE mmd_core Qt6::Test)
-
-add_test(NAME test_code COMMAND test_code)
-set_tests_properties(test_code PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_gif
-    test_gif.cpp
-)
-target_link_libraries(test_gif PRIVATE mmd_core Qt6::Test)
-
-add_test(NAME test_gif COMMAND test_gif)
-set_tests_properties(test_gif PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_file
-    test_file.cpp
-)
-target_link_libraries(test_file PRIVATE mmd_core Qt6::Test)
-
-add_test(NAME test_file COMMAND test_file)
-set_tests_properties(test_file PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+mmd_add_test(test_app)
+mmd_add_test(test_theme)
+mmd_add_test(test_fonts)
+mmd_add_test(test_markdown MMD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+mmd_add_test(test_editor)
+mmd_add_test(test_view)
+mmd_add_test(test_html)
+mmd_add_test(test_code)
+mmd_add_test(test_gif)
+mmd_add_test(test_file)
+mmd_add_test(test_limits)
+mmd_add_test(test_find)
+mmd_add_test(test_outline)
+mmd_add_test(test_sidebar)
+mmd_add_test(test_math)

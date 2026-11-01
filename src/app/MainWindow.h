@@ -3,17 +3,26 @@
 
 #pragma once
 
+#include "core/DocumentLimits.h"
+#include "core/Outline.h"
 #include "core/ThemeManager.h"
 
 #include <QHash>
 #include <QMainWindow>
+#include <QVector>
 
 class QAction;
 class QCloseEvent;
+class QDockWidget;
+class QLabel;
 class QSplitter;
 class FileDocument;
+class FileTreePanel;
+class FindBar;
+class FindController;
 class MarkdownEditor;
 class MarkdownView;
+class OutlinePanel;
 class ScrollSync;
 
 class MainWindow : public QMainWindow
@@ -44,10 +53,19 @@ protected:
 private:
     void buildUi();
     void buildMenus();
+    void buildSidebar();
     void applyTheme(const ThemeDefinition &theme);
     void loadThemeFromFile();
     void restoreThemeSettings();
     void persistThemeSettings();
+
+    void updateStatusBar();
+    void updateRenderStatus();
+
+    void openFolderDialog();
+    void setFolder(const QString &path);
+    void refreshOutline();
+    void activateOutlineEntry(int index);
 
     void newFile();
     void openFileDialog();
@@ -58,11 +76,23 @@ private:
     void onExternalChange();
 
     QSplitter *m_splitter = nullptr;
+    QWidget *m_editorPane = nullptr;
+    QWidget *m_viewerPane = nullptr;
     MarkdownEditor *m_editor = nullptr;
     MarkdownView *m_viewer = nullptr;
+    FindBar *m_editorBar = nullptr;
+    FindBar *m_viewerBar = nullptr;
+    FindController *m_find = nullptr;
+    QDockWidget *m_sidebar = nullptr;
+    OutlinePanel *m_outlinePanel = nullptr;
+    FileTreePanel *m_filesPanel = nullptr;
+    QVector<OutlineEntry> m_outline;
     ScrollSync *m_scrollSync = nullptr;
     FileDocument *m_file = nullptr;
     ThemeManager *m_themes = nullptr;
+    DocumentLimits m_limits;
+    QLabel *m_statusInfo = nullptr;
+    QLabel *m_statusRender = nullptr;
     QAction *m_toggleEditor = nullptr;
     QAction *m_toggleViewer = nullptr;
     QAction *m_customThemeAction = nullptr;

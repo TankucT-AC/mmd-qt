@@ -20,6 +20,9 @@ private slots:
     void switchingThemeChangesCodeColors();
     void unknownLanguageIsLeftAlone();
     void plainTextIsNotTouched();
+    void oversizedBlockIsSkipped();
+    void zeroTotalBudgetSkipsEverything();
+    void generousLimitsMatchUnlimited();
 
 private:
     static QTextDocument *build(const QString &markdown);
@@ -96,6 +99,60 @@ void CodeHighlightTest::plainTextIsNotTouched()
     highlighter.highlight(document.get());
 
     QCOMPARE(paletteOf(document.get()), before);
+}
+
+void CodeHighlightTest::oversizedBlockIsSkipped()
+{
+    // A minified file is one enormous line; the per-block cap is what keeps it
+    // from stalling the pass.
+    QString single;
+    while (single.size() < 4096)
+        single += QStringLiteral("int value = 1; ");
+    std::unique_ptr<QTextDocument> document(build(QStringLiteral("```cpp\n") + single + QStringLiteral("\n```\n")));
+    const QSet<QRgb> before = paletteOf(document.get());
+
+    CodeHighlighter highlighter;
+    highlighter.setThemeDefinition(ThemeDefinition::light());
+    highlighter.setLimits(1024, -1); // far below the length of that line
+    highlighter.highlight(document.get());
+    QCOMPARE(paletteOf(document.get()), before);
+
+    // Proof that the cap, and not the language, is what left it alone.
+    CodeHighlighter loose;
+    loose.setThemeDefinition(ThemeDefinition::light());
+    loose.highlight(document.get());
+    QVERIFY(paletteOf(document.get()).size() > before.size());
+}
+
+void CodeHighlightTest::zeroTotalBudgetSkipsEverything()
+{
+    std::unique_ptr<QTextDocument> document(build(QStringLiteral("```cpp\nint a = 1;\n```\n")));
+    const QSet<QRgb> before = paletteOf(document.get());
+
+    CodeHighlighter highlighter;
+    highlighter.setThemeDefinition(ThemeDefinition::light());
+    highlighter.setLimits(-1, 0);
+    highlighter.highlight(document.get());
+
+    QCOMPARE(paletteOf(document.get()), before);
+}
+
+void CodeHighlightTest::generousLimitsMatchUnlimited()
+{
+    const QString markdown = QStringLiteral("```python\n# note\nx = 1\n```\n");
+
+    std::unique_ptr<QTextDocument> unlimited(build(markdown));
+    CodeHighlighter loose;
+    loose.setThemeDefinition(ThemeDefinition::light());
+    loose.highlight(unlimited.get());
+
+    std::unique_ptr<QTextDocument> capped(build(markdown));
+    CodeHighlighter bounded;
+    bounded.setThemeDefinition(ThemeDefinition::light());
+    bounded.setLimits(4096, 64 * 1024);
+    bounded.highlight(capped.get());
+
+    QCOMPARE(paletteOf(capped.get()), paletteOf(unlimited.get()));
 }
 
 QTEST_MAIN(CodeHighlightTest)

@@ -41,7 +41,8 @@ extern "C" {
 namespace
 {
 
-constexpr unsigned kParserFlags = MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_COLLAPSEWHITESPACE;
+constexpr unsigned kParserFlags =
+    MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_COLLAPSEWHITESPACE | MD_FLAG_LATEXMATHSPANS;
 
 constexpr int kRuleLength = 40;
 
@@ -194,6 +195,7 @@ private:
     void setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList);
     void startBlock();
     void insertImageElement(const QString &source, const QString &alt, int htmlWidth = 0);
+    void insertMathElement(const QString &tex, bool display);
     void insertChip(const QString &text, MarkdownBuilder::ChipKind kind);
     void insertVerbatim(const QString &content);
     void startVerbatimFrame(const QColor &background, const QString &language);
@@ -247,6 +249,12 @@ private:
     bool m_taskDone = false;
     bool m_taskPending = false;
     int m_imageDepth = 0;
+
+    // LaTeX math span collection: the TeX source arrives as raw text callbacks
+    // between the span's enter and leave, the way an image collects its alt text.
+    int m_mathDepth = 0;
+    bool m_mathDisplay = false;
+    QString m_mathBuffer;
 
     bool m_inListItem = false;
     bool m_listItemFirstBlockDone = false;
@@ -839,6 +847,16 @@ int Builder::enterSpan(MD_SPANTYPE type, void *detail)
         m_imageAltBuffer.clear();
         break;
     }
+    case MD_SPAN_LATEXMATH:
+    case MD_SPAN_LATEXMATH_DISPLAY:
+        // The TeX source arrives as raw text callbacks after this point;
+        // collect it and insert the object on leave, like an image's alt text.
+        if (m_mathDepth == 0) {
+            m_mathBuffer.clear();
+            m_mathDisplay = type == MD_SPAN_LATEXMATH_DISPLAY;
+        }
+        ++m_mathDepth;
+        break;
     default:
         break;
     }
@@ -869,6 +887,12 @@ int Builder::leaveSpan(MD_SPANTYPE type, void *detail)
         insertImageElement(m_pendingImageSrc, m_imageAltBuffer.trimmed());
         m_pendingImageSrc.clear();
         m_imageAltBuffer.clear();
+        break;
+    case MD_SPAN_LATEXMATH:
+    case MD_SPAN_LATEXMATH_DISPLAY:
+        --m_mathDepth;
+        if (m_mathDepth == 0)
+            insertMathElement(m_mathBuffer, m_mathDisplay);
         break;
     default:
         break;
@@ -959,6 +983,12 @@ void Builder::insertVerbatim(const QString &content)
 
 int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
 {
+    if (m_mathDepth > 0) {
+        // Raw TeX: no entity decoding, no inline processing, verbatim.
+        m_mathBuffer += QString::fromUtf8(data, int(size));
+        return 0;
+    }
+
     if (m_imageDepth > 0) {
         // Alt text of an image: kept to label a chip when the source is remote.
         switch (type) {
@@ -1146,6 +1176,42 @@ void Builder::emitTable()
 
     m_cursor = QTextCursor(m_document);
     m_cursor.movePosition(QTextCursor::End);
+}
+
+void Builder::insertMathElement(const QString &tex, bool display)
+{
+    const QString source = tex.trimmed();
+    if (source.isEmpty())
+        return;
+
+    QTextCharFormat format;
+    format.setObjectType(MarkdownBuilder::mathObjectType);
+    format.setProperty(MarkdownBuilder::mathSourceKey, source);
+    format.setProperty(MarkdownBuilder::mathDisplayKey, display);
+    const QString object = QString(QChar::ObjectReplacementCharacter);
+
+    if (!display) {
+        m_cursor.insertText(object, format);
+        return;
+    }
+
+    // md4c glues a standalone $$...$$ to the paragraph before it: its lazy-math
+    // rule swallows the blank line, so the span often arrives inside a block
+    // that already carries text. Split it off -- the formula gets a centred
+    // block of its own instead of centring somebody else's paragraph.
+    QTextBlockFormat centre = paragraphFormat();
+    centre.setAlignment(Qt::AlignHCenter);
+
+    if (m_cursor.block().length() > 1) {
+        m_pending = PendingBlock{}; // the block break is centred, nothing pending
+        m_cursor.insertBlock(centre, m_blockCharFormat);
+    } else {
+        // The formula opens a fresh block: make that block the centred one.
+        setPendingBlock(centre, m_blockCharFormat, false);
+        startBlock();
+    }
+
+    m_cursor.insertText(object, format);
 }
 
 void Builder::insertChip(const QString &text, MarkdownBuilder::ChipKind kind)
