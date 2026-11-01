@@ -5,6 +5,8 @@
 
 #include <QFontDatabase>
 
+#include <algorithm>
+
 // The font resources live in the static mmd_core library; the linker would
 // drop the generated resource initializer unless something references it.
 // Q_INIT_RESOURCE must be called from a function outside any namespace.
@@ -51,8 +53,6 @@ QStringList FontManager::ensureBundledFontsLoaded()
 
     initFontResources();
 
-    const QFontDatabase database;
-
     const QStringList resources = {
         QStringLiteral(":/mmd/fonts/Inter-Regular.ttf"),
         QStringLiteral(":/mmd/fonts/Inter-Italic.ttf"),
@@ -72,7 +72,7 @@ QStringList FontManager::ensureBundledFontsLoaded()
 
     loaded = true;
     families.clear();
-    const QStringList after = database.families();
+    const QStringList after = QFontDatabase::families();
     for (const QString &family : after) {
         if (family == QStringLiteral("Inter") || family == QStringLiteral("JetBrains Mono"))
             families.append(family);
@@ -116,7 +116,7 @@ QFont FontManager::codeFont() const
 
 QFont FontManager::headingFont(int level) const
 {
-    const int clamped = qBound(1, level, kHeadingCount);
+    const int clamped = std::clamp(level, 1, kHeadingCount);
     return proportionalFont(headingPointSize(clamped), headingWeight(clamped));
 }
 
@@ -132,7 +132,7 @@ qreal FontManager::codePointSize() const
 
 qreal FontManager::headingPointSize(int level)
 {
-    switch (qBound(1, level, kHeadingCount)) {
+    switch (std::clamp(level, 1, kHeadingCount)) {
     case 1:
         return kBodyPointSize * kScaleRatio * kScaleRatio * kScaleRatio;
     case 2:
