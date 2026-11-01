@@ -83,6 +83,9 @@ QStringList FontManager::ensureBundledFontsLoaded()
 FontManager::FontManager(FontSet set)
     : m_set(set)
 {
+    // Bundled faces must be registered before any font is resolved; this is
+    // idempotent and cheap after the first call.
+    ensureBundledFontsLoaded();
 }
 
 void FontManager::setFontSet(FontSet set)

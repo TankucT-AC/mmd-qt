@@ -15,6 +15,10 @@ add_library(mmd_core STATIC
     core/ThemeManager.cpp
     core/FontManager.h
     core/FontManager.cpp
+    core/ImageResolver.h
+    core/ImageResolver.cpp
+    core/MarkdownBuilder.h
+    core/MarkdownBuilder.cpp
 )
 
 target_include_directories(mmd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

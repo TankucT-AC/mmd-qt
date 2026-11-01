@@ -24,3 +24,11 @@ target_link_libraries(test_fonts PRIVATE mmd_core Qt6::Test)
 
 add_test(NAME test_fonts COMMAND test_fonts)
 set_tests_properties(test_fonts PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(test_markdown
+    test_markdown.cpp
+)
+target_link_libraries(test_markdown PRIVATE mmd_core Qt6::Test)
+
+add_test(NAME test_markdown COMMAND test_markdown)
+set_tests_properties(test_markdown PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

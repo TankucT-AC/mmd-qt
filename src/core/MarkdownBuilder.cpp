@@ -1,0 +1,801 @@
+// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "core/MarkdownBuilder.h"
+
+#include "core/ImageResolver.h"
+
+#include <QDir>
+#include <QFileInfo>
+#include <QImageReader>
+#include <QStack>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QTextDocumentFragment>
+#include <QTextList>
+#include <QTextTable>
+#include <QTextTableCell>
+#include <QUrl>
+
+extern "C" {
+#include "entity.h"
+#include "md4c.h"
+}
+
+#include <memory>
+#include <optional>
+#include <vector>
+
+namespace
+{
+
+constexpr unsigned kParserFlags = MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_COLLAPSEWHITESPACE;
+
+constexpr int kRuleLength = 40;
+
+QString decodeEntityText(const char *data, unsigned size)
+{
+    // The entity table keys include the '&' and ';' (e.g. "&amp;").
+    const ENTITY *entity = entity_lookup(data, size_t(size));
+    if (!entity)
+        return QString::fromUtf8(data, int(size));
+
+    const char32_t codepoints[2] = {entity->codepoints[0], entity->codepoints[1]};
+    return QString::fromUcs4(codepoints, entity->codepoints[1] != 0 ? 2 : 1);
+}
+
+// MD_ATTRIBUTE strings arrive as a chain of typed substrings; entities inside
+// them are not decoded by md4c itself.
+QString decodeAttribute(const MD_ATTRIBUTE &attribute)
+{
+    QString result;
+    if (attribute.size == 0)
+        return result;
+
+    for (unsigned i = 0;; ++i) {
+        const unsigned begin = attribute.substr_offsets[i];
+        const unsigned end = attribute.substr_offsets[i + 1];
+        switch (attribute.substr_types[i]) {
+        case MD_TEXT_ENTITY:
+            result += decodeEntityText(attribute.text + begin, end - begin);
+            break;
+        case MD_TEXT_NULLCHAR:
+            result += QChar::ReplacementCharacter;
+            break;
+        default:
+            result += QString::fromUtf8(attribute.text + begin, int(end - begin));
+            break;
+        }
+        if (end == attribute.size)
+            break;
+    }
+    return result;
+}
+
+class Builder
+{
+public:
+    Builder(QTextDocument *document, const RenderStyle &style)
+        : m_document(document)
+        , m_style(style)
+        , m_cursor(document)
+    {
+    }
+
+    bool run(const QString &markdown);
+
+    int enterBlock(MD_BLOCKTYPE type, void *detail);
+    int leaveBlock(MD_BLOCKTYPE type, void *detail);
+    int enterSpan(MD_SPANTYPE type, void *detail);
+    int leaveSpan(MD_SPANTYPE type, void *detail);
+    int text(MD_TEXTTYPE type, const char *data, unsigned size);
+
+private:
+    struct SpanFormatState {
+        bool em = false;
+        bool strong = false;
+        bool del = false;
+        bool code = false;
+    };
+
+    struct PendingBlock {
+        bool valid = false;
+        QTextBlockFormat format;
+        QTextCharFormat baseCharFormat;
+        bool attachToList = false;
+    };
+
+    struct Cell {
+        std::unique_ptr<QTextDocument> document;
+        bool header = false;
+        Qt::Alignment alignment = Qt::AlignLeft;
+    };
+
+    struct TableState {
+        unsigned columns = 0;
+        unsigned headerRows = 0;
+        bool inHead = false;
+        std::vector<Cell> currentRow;
+        std::vector<std::vector<Cell>> rows;
+    };
+
+    struct SavedState {
+        QTextCursor cursor;
+        PendingBlock pending;
+        QTextCharFormat blockCharFormat;
+        SpanFormatState spans;
+        QString linkHref;
+        bool firstBlock = true;
+    };
+
+    void setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList);
+    void startBlock();
+    void insertImage(const MD_SPAN_IMG_DETAIL *detail);
+    void insertVerbatim(const QString &content);
+    void emitTable();
+    QString linkFor(const QString &href) const;
+
+    QTextCharFormat composeCharFormat() const;
+    QTextCharFormat bodyCharFormat() const;
+    QTextCharFormat codeCharFormat() const;
+    QTextCharFormat headingCharFormat(int level) const;
+    QTextCharFormat ruleCharFormat() const;
+
+    QTextBlockFormat paragraphFormat() const;
+    QTextBlockFormat headingFormat(int level) const;
+    QTextBlockFormat codeFormat(const QString &language) const;
+    QTextBlockFormat ruleFormat() const;
+    QTextBlockFormat quoteWrap(QTextBlockFormat format) const;
+
+    QTextDocument *m_document = nullptr;
+    RenderStyle m_style;
+    QTextCursor m_cursor;
+
+    bool m_firstBlock = true;
+    PendingBlock m_pending;
+    QTextCharFormat m_blockCharFormat;
+
+    SpanFormatState m_span;
+    QString m_linkHref;
+
+    bool m_taskDone = false;
+    bool m_taskPending = false;
+    int m_imageDepth = 0;
+
+    bool m_inListItem = false;
+    bool m_listItemFirstBlockDone = false;
+    QVector<QTextListFormat> m_pendingListFormats;
+    QVector<QTextList *> m_lists;
+    int m_quoteDepth = 0;
+
+    bool m_inVerbatimBlock = false;
+    bool m_verbatimPendingNewline = false;
+    QTextBlockFormat m_verbatimBlockFormat;
+
+    std::optional<TableState> m_table;
+    QStack<SavedState> m_cellStack;
+};
+
+int onEnterBlock(MD_BLOCKTYPE type, void *detail, void *userdata)
+{
+    return static_cast<Builder *>(userdata)->enterBlock(type, detail);
+}
+
+int onLeaveBlock(MD_BLOCKTYPE type, void *detail, void *userdata)
+{
+    return static_cast<Builder *>(userdata)->leaveBlock(type, detail);
+}
+
+int onEnterSpan(MD_SPANTYPE type, void *detail, void *userdata)
+{
+    return static_cast<Builder *>(userdata)->enterSpan(type, detail);
+}
+
+int onLeaveSpan(MD_SPANTYPE type, void *detail, void *userdata)
+{
+    return static_cast<Builder *>(userdata)->leaveSpan(type, detail);
+}
+
+int onText(MD_TEXTTYPE type, const char *data, MD_SIZE size, void *userdata)
+{
+    return static_cast<Builder *>(userdata)->text(type, data, size);
+}
+
+bool Builder::run(const QString &markdown)
+{
+    const QByteArray utf8 = markdown.toUtf8();
+
+    MD_PARSER parser = {};
+    parser.abi_version = 0;
+    parser.flags = kParserFlags;
+    parser.enter_block = &onEnterBlock;
+    parser.leave_block = &onLeaveBlock;
+    parser.enter_span = &onEnterSpan;
+    parser.leave_span = &onLeaveSpan;
+    parser.text = &onText;
+
+    m_document->clear();
+    m_cursor = QTextCursor(m_document);
+    m_firstBlock = true;
+    m_pending = PendingBlock{};
+
+    return md_parse(utf8.constData(), MD_SIZE(utf8.size()), &parser, this) == 0;
+}
+
+void Builder::setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList)
+{
+    m_pending = PendingBlock{true, format, base, attachToList};
+}
+
+void Builder::startBlock()
+{
+    if (!m_pending.valid)
+        return;
+    const PendingBlock pending = m_pending;
+    m_pending = PendingBlock{};
+    m_blockCharFormat = pending.baseCharFormat;
+
+    if (m_firstBlock) {
+        m_cursor.setBlockFormat(pending.format);
+        m_cursor.setBlockCharFormat(pending.baseCharFormat);
+        m_firstBlock = false;
+    } else {
+        m_cursor.insertBlock(pending.format, pending.baseCharFormat);
+    }
+
+    if (pending.attachToList) {
+        if (!m_pendingListFormats.isEmpty()) {
+            QTextListFormat listFormat = m_pendingListFormats.takeLast();
+            listFormat.setIndent(m_lists.size() + 1);
+            m_lists.append(m_cursor.createList(listFormat));
+        } else if (!m_lists.isEmpty() && m_lists.last()->itemNumber(m_cursor.block()) < 0) {
+            m_lists.last()->add(m_cursor.block());
+        }
+        if (m_inListItem)
+            m_listItemFirstBlockDone = true;
+    } else if (!m_lists.isEmpty() && m_inListItem && m_listItemFirstBlockDone) {
+        // Continuation paragraph inside a list item: align with the markers.
+        QTextBlockFormat adjusted = m_cursor.block().blockFormat();
+        adjusted.setIndent(m_lists.size());
+        m_cursor.setBlockFormat(adjusted);
+    }
+
+    if (m_taskPending) {
+        QTextCharFormat markerFormat = pending.baseCharFormat;
+        markerFormat.setForeground(m_taskDone ? m_style.theme.markdown.taskDone : m_style.theme.markdown.taskOpen);
+        m_cursor.insertText(QString(m_taskDone ? QChar(0x2611) : QChar(0x2610)) + QLatin1Char(' '), markerFormat);
+        m_taskPending = false;
+    }
+}
+
+QTextCharFormat Builder::composeCharFormat() const
+{
+    QTextCharFormat format = m_blockCharFormat;
+    if (m_span.strong)
+        format.setFontWeight(QFont::Bold);
+    if (m_span.em)
+        format.setFontItalic(true);
+    if (m_span.del || m_taskDone)
+        format.setFontStrikeOut(true);
+    if (m_span.code) {
+        format.setFont(m_style.fonts.codeFont());
+        format.setBackground(m_style.theme.markdown.codeBackground);
+        format.setForeground(m_style.theme.markdown.codeText);
+    }
+    if (!m_linkHref.isEmpty()) {
+        format.setAnchor(true);
+        format.setAnchorHref(m_linkHref);
+        format.setForeground(m_style.theme.markdown.link);
+        format.setFontUnderline(true);
+    }
+    return format;
+}
+
+QTextCharFormat Builder::bodyCharFormat() const
+{
+    QTextCharFormat format;
+    format.setFont(m_style.fonts.bodyFont());
+    format.setForeground(m_style.theme.palette.color(QPalette::Text));
+    return format;
+}
+
+QTextCharFormat Builder::codeCharFormat() const
+{
+    QTextCharFormat format;
+    format.setFont(m_style.fonts.codeFont());
+    format.setForeground(m_style.theme.markdown.codeText);
+    return format;
+}
+
+QTextCharFormat Builder::headingCharFormat(int level) const
+{
+    QTextCharFormat format;
+    format.setFont(m_style.fonts.headingFont(level));
+    format.setForeground(level >= 6 ? m_style.theme.markdown.weakText : m_style.theme.markdown.heading);
+    return format;
+}
+
+QTextCharFormat Builder::ruleCharFormat() const
+{
+    QTextCharFormat format;
+    format.setFont(m_style.fonts.bodyFont());
+    format.setForeground(m_style.theme.markdown.rule);
+    return format;
+}
+
+QTextBlockFormat Builder::paragraphFormat() const
+{
+    QTextBlockFormat format;
+    format.setLineHeight(140, QTextBlockFormat::ProportionalHeight);
+    format.setBottomMargin(6);
+    return format;
+}
+
+QTextBlockFormat Builder::headingFormat(int level) const
+{
+    QTextBlockFormat format;
+    switch (level) {
+    case 1:
+        format.setTopMargin(20);
+        format.setBottomMargin(10);
+        break;
+    case 2:
+        format.setTopMargin(18);
+        format.setBottomMargin(8);
+        break;
+    case 3:
+        format.setTopMargin(16);
+        format.setBottomMargin(6);
+        break;
+    case 6:
+        format.setTopMargin(10);
+        format.setBottomMargin(4);
+        break;
+    default:
+        format.setTopMargin(12);
+        format.setBottomMargin(4);
+        break;
+    }
+    format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Heading));
+    format.setProperty(MarkdownBuilder::headingLevelKey, level);
+    return format;
+}
+
+QTextBlockFormat Builder::codeFormat(const QString &language) const
+{
+    QTextBlockFormat format;
+    format.setBackground(m_style.theme.markdown.codeBackground);
+    format.setTopMargin(8);
+    format.setBottomMargin(8);
+    format.setLeftMargin(10);
+    format.setRightMargin(10);
+    format.setLineHeight(130, QTextBlockFormat::ProportionalHeight);
+    format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Code));
+    format.setProperty(MarkdownBuilder::languageKey, language);
+    return format;
+}
+
+QTextBlockFormat Builder::ruleFormat() const
+{
+    QTextBlockFormat format;
+    format.setAlignment(Qt::AlignHCenter);
+    format.setTopMargin(8);
+    format.setBottomMargin(8);
+    format.setProperty(MarkdownBuilder::kindKey, int(MarkdownBuilder::BlockKind::Rule));
+    return format;
+}
+
+QTextBlockFormat Builder::quoteWrap(QTextBlockFormat format) const
+{
+    if (m_quoteDepth == 0)
+        return format;
+    format.setBackground(m_style.theme.markdown.quoteBackground);
+    format.setLeftMargin(format.leftMargin() + 16.0 * m_quoteDepth);
+    format.setRightMargin(format.rightMargin() + 16.0);
+    format.setTopMargin(format.topMargin() + 4);
+    format.setBottomMargin(format.bottomMargin() + 4);
+    return format;
+}
+
+QString Builder::linkFor(const QString &href) const
+{
+    if (href.isEmpty())
+        return QString();
+
+    const QUrl url(href);
+    if (!url.scheme().isEmpty())
+        return href;
+    if (m_style.baseDir.isEmpty())
+        return href;
+    return QUrl::fromLocalFile(QDir(m_style.baseDir).filePath(href)).toString();
+}
+
+int Builder::enterBlock(MD_BLOCKTYPE type, void *detail)
+{
+    switch (type) {
+    case MD_BLOCK_DOC:
+        break;
+    case MD_BLOCK_QUOTE:
+        ++m_quoteDepth;
+        break;
+    case MD_BLOCK_UL:
+    case MD_BLOCK_OL: {
+        QTextListFormat format;
+        format.setStyle(type == MD_BLOCK_OL ? QTextListFormat::ListDecimal : QTextListFormat::ListDisc);
+        m_pendingListFormats.append(format);
+        break;
+    }
+    case MD_BLOCK_LI: {
+        const auto *item = static_cast<const MD_BLOCK_LI_DETAIL *>(detail);
+        m_inListItem = true;
+        m_listItemFirstBlockDone = false;
+        m_taskDone = false;
+        m_taskPending = false;
+        if (item && item->is_task) {
+            m_taskPending = true;
+            m_taskDone = item->task_mark != ' ';
+        }
+        setPendingBlock(quoteWrap(paragraphFormat()), bodyCharFormat(), true);
+        break;
+    }
+    case MD_BLOCK_H: {
+        const auto *heading = static_cast<const MD_BLOCK_H_DETAIL *>(detail);
+        const int level = int(heading->level);
+        setPendingBlock(quoteWrap(headingFormat(level)), headingCharFormat(level), false);
+        break;
+    }
+    case MD_BLOCK_CODE: {
+        const auto *code = static_cast<const MD_BLOCK_CODE_DETAIL *>(detail);
+        m_inVerbatimBlock = true;
+        m_verbatimPendingNewline = false;
+        m_verbatimBlockFormat = quoteWrap(codeFormat(decodeAttribute(code->lang)));
+        setPendingBlock(m_verbatimBlockFormat, codeCharFormat(), false);
+        break;
+    }
+    case MD_BLOCK_HTML: {
+        QTextBlockFormat format = codeFormat(QString());
+        format.setBackground(m_style.theme.markdown.quoteBackground);
+        m_inVerbatimBlock = true;
+        m_verbatimPendingNewline = false;
+        m_verbatimBlockFormat = quoteWrap(format);
+        setPendingBlock(m_verbatimBlockFormat, codeCharFormat(), false);
+        break;
+    }
+    case MD_BLOCK_P:
+        setPendingBlock(quoteWrap(paragraphFormat()), bodyCharFormat(), m_inListItem && !m_listItemFirstBlockDone);
+        break;
+    case MD_BLOCK_HR:
+        setPendingBlock(ruleFormat(), ruleCharFormat(), false);
+        break;
+    case MD_BLOCK_TABLE: {
+        const auto *table = static_cast<const MD_BLOCK_TABLE_DETAIL *>(detail);
+        m_table = TableState();
+        m_table->columns = table->col_count;
+        break;
+    }
+    case MD_BLOCK_THEAD:
+        if (m_table)
+            m_table->inHead = true;
+        break;
+    case MD_BLOCK_TBODY:
+        if (m_table)
+            m_table->inHead = false;
+        break;
+    case MD_BLOCK_TR:
+        if (m_table)
+            m_table->currentRow.clear();
+        break;
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD: {
+        if (!m_table)
+            break;
+        const auto *cellDetail = static_cast<const MD_BLOCK_TD_DETAIL *>(detail);
+
+        SavedState saved;
+        saved.cursor = m_cursor;
+        saved.pending = m_pending;
+        saved.blockCharFormat = m_blockCharFormat;
+        saved.spans = m_span;
+        saved.linkHref = m_linkHref;
+        saved.firstBlock = m_firstBlock;
+        m_cellStack.push(saved);
+
+        Cell cell;
+        cell.document = std::make_unique<QTextDocument>();
+        cell.header = m_table->inHead;
+        switch (cellDetail->align) {
+        case MD_ALIGN_CENTER:
+            cell.alignment = Qt::AlignHCenter;
+            break;
+        case MD_ALIGN_RIGHT:
+            cell.alignment = Qt::AlignRight;
+            break;
+        default:
+            cell.alignment = Qt::AlignLeft;
+            break;
+        }
+        m_table->currentRow.push_back(std::move(cell));
+
+        m_cursor = QTextCursor(m_table->currentRow.back().document.get());
+        m_firstBlock = true;
+        m_span = SpanFormatState{};
+        m_linkHref.clear();
+        setPendingBlock(paragraphFormat(), bodyCharFormat(), false);
+        break;
+    }
+    default:
+        break;
+    }
+    return 0;
+}
+
+int Builder::leaveBlock(MD_BLOCKTYPE type, void *detail)
+{
+    Q_UNUSED(detail);
+    switch (type) {
+    case MD_BLOCK_DOC:
+        break;
+    case MD_BLOCK_QUOTE:
+        --m_quoteDepth;
+        break;
+    case MD_BLOCK_UL:
+    case MD_BLOCK_OL:
+        // A list that never got a materialized item stays pending.
+        if (m_pendingListFormats.size() > m_lists.size())
+            m_pendingListFormats.removeLast();
+        else if (!m_lists.isEmpty())
+            m_lists.removeLast();
+        break;
+    case MD_BLOCK_LI:
+        startBlock(); // materialize empty items, e.g. "- " with no text
+        m_inListItem = false;
+        m_taskDone = false;
+        m_taskPending = false;
+        break;
+    case MD_BLOCK_H:
+        startBlock(); // materialize even when there was no text callback
+        break;
+    case MD_BLOCK_CODE:
+    case MD_BLOCK_HTML:
+        startBlock();
+        m_inVerbatimBlock = false;
+        break;
+    case MD_BLOCK_HR:
+        startBlock();
+        m_cursor.insertText(QString(QChar(0x2500)).repeated(kRuleLength), ruleCharFormat());
+        break;
+    case MD_BLOCK_TABLE:
+        emitTable();
+        m_table.reset();
+        break;
+    case MD_BLOCK_TR:
+        if (m_table && !m_table->currentRow.empty()) {
+            if (m_table->currentRow.front().header)
+                ++m_table->headerRows;
+            m_table->rows.push_back(std::move(m_table->currentRow));
+            m_table->currentRow.clear();
+        }
+        break;
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD: {
+        if (m_cellStack.isEmpty())
+            break;
+        const SavedState saved = m_cellStack.pop();
+        m_cursor = saved.cursor;
+        m_pending = saved.pending;
+        m_blockCharFormat = saved.blockCharFormat;
+        m_span = saved.spans;
+        m_linkHref = saved.linkHref;
+        m_firstBlock = saved.firstBlock;
+        break;
+    }
+    default:
+        break;
+    }
+    return 0;
+}
+
+int Builder::enterSpan(MD_SPANTYPE type, void *detail)
+{
+    switch (type) {
+    case MD_SPAN_EM:
+        m_span.em = true;
+        break;
+    case MD_SPAN_STRONG:
+        m_span.strong = true;
+        break;
+    case MD_SPAN_DEL:
+        m_span.del = true;
+        break;
+    case MD_SPAN_CODE:
+        startBlock(); // inline code may open a tight list item
+        m_span.code = true;
+        break;
+    case MD_SPAN_A: {
+        const auto *link = static_cast<const MD_SPAN_A_DETAIL *>(detail);
+        startBlock();
+        m_linkHref = linkFor(decodeAttribute(link->href));
+        break;
+    }
+    case MD_SPAN_IMG:
+        startBlock();
+        ++m_imageDepth;
+        insertImage(static_cast<const MD_SPAN_IMG_DETAIL *>(detail));
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
+int Builder::leaveSpan(MD_SPANTYPE type, void *detail)
+{
+    Q_UNUSED(detail);
+    switch (type) {
+    case MD_SPAN_EM:
+        m_span.em = false;
+        break;
+    case MD_SPAN_STRONG:
+        m_span.strong = false;
+        break;
+    case MD_SPAN_DEL:
+        m_span.del = false;
+        break;
+    case MD_SPAN_CODE:
+        m_span.code = false;
+        break;
+    case MD_SPAN_A:
+        m_linkHref.clear();
+        break;
+    case MD_SPAN_IMG:
+        --m_imageDepth;
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
+void Builder::insertVerbatim(const QString &content)
+{
+    int from = 0;
+    while (from < content.size()) {
+        const int newline = content.indexOf(QLatin1Char('\n'), from);
+        const QString line = newline < 0 ? content.mid(from) : content.mid(from, newline - from);
+
+        if (m_verbatimPendingNewline) {
+            m_cursor.insertBlock(m_verbatimBlockFormat, m_blockCharFormat);
+            m_verbatimPendingNewline = false;
+        }
+        if (!line.isEmpty())
+            m_cursor.insertText(line, composeCharFormat());
+        if (newline < 0)
+            break;
+        m_verbatimPendingNewline = true;
+        from = newline + 1;
+    }
+}
+
+int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
+{
+    if (m_imageDepth > 0)
+        return 0; // image alt text is not rendered
+
+    QString decoded;
+    switch (type) {
+    case MD_TEXT_BR:
+        startBlock();
+        m_cursor.insertText(QString(QChar(0x2028)), composeCharFormat());
+        return 0;
+    case MD_TEXT_SOFTBR:
+        decoded = QStringLiteral(" ");
+        break;
+    case MD_TEXT_ENTITY:
+        decoded = decodeEntityText(data, size);
+        break;
+    case MD_TEXT_NULLCHAR:
+        decoded = QChar::ReplacementCharacter;
+        break;
+    default:
+        decoded = QString::fromUtf8(data, int(size));
+        break;
+    }
+
+    startBlock();
+
+    if (m_inVerbatimBlock) {
+        insertVerbatim(decoded);
+    } else if (!decoded.isEmpty()) {
+        m_cursor.insertText(decoded, composeCharFormat());
+    }
+    return 0;
+}
+
+void Builder::insertImage(const MD_SPAN_IMG_DETAIL *detail)
+{
+    const QString source = decodeAttribute(detail->src);
+    const QString path = ImageResolver::resolve(source, m_style.baseDir);
+    const QTextCharFormat base = m_blockCharFormat;
+
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        QTextCharFormat missing = base;
+        missing.setForeground(m_style.theme.markdown.weakText);
+        missing.setFontItalic(true);
+        m_cursor.insertText(QStringLiteral("[image: %1]").arg(source), missing);
+        return;
+    }
+
+    if (ImageResolver::isAnimated(path)) {
+        QTextCharFormat format;
+        format.setObjectType(MarkdownBuilder::gifObjectType);
+        format.setProperty(MarkdownBuilder::gifPathKey, path);
+        m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+        return;
+    }
+
+    QTextImageFormat format;
+    format.setName(path);
+    QImageReader reader(path);
+    const QSize natural = reader.size();
+    if (natural.isValid() && natural.width() > m_style.maxImageWidth) {
+        format.setWidth(m_style.maxImageWidth);
+        format.setHeight(qRound(qreal(natural.height()) * m_style.maxImageWidth / natural.width()));
+    }
+    m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+}
+
+void Builder::emitTable()
+{
+    if (!m_table || m_table->rows.empty() || m_table->columns == 0)
+        return;
+    TableState table = std::move(*m_table);
+
+    if (!m_firstBlock)
+        m_cursor.insertBlock(QTextBlockFormat(), bodyCharFormat());
+    m_firstBlock = false;
+
+    QTextTableFormat format;
+    format.setBorder(1);
+    format.setBorderBrush(QBrush(m_style.theme.markdown.tableBorder));
+    format.setCellSpacing(0);
+    format.setCellPadding(8);
+    format.setHeaderRowCount(int(table.headerRows));
+    QVector<QTextLength> constraints;
+    for (unsigned column = 0; column < table.columns; ++column)
+        constraints.append(QTextLength(QTextLength::PercentageLength, 100.0 / table.columns));
+    format.setColumnWidthConstraints(constraints);
+
+    QTextTable *target = m_cursor.insertTable(int(table.rows.size()), int(table.columns), format);
+    for (int row = 0; row < int(table.rows.size()); ++row) {
+        const int columns = qMin(int(table.columns), int(table.rows[row].size()));
+        for (int column = 0; column < columns; ++column) {
+            const Cell &cell = table.rows[row][column];
+            QTextCursor cellCursor = target->cellAt(row, column).firstCursorPosition();
+            if (cell.document)
+                cellCursor.insertFragment(QTextDocumentFragment(cell.document.get()));
+            if (cell.alignment != Qt::AlignLeft) {
+                QTextBlockFormat blockFormat = cellCursor.blockFormat();
+                blockFormat.setAlignment(cell.alignment);
+                cellCursor.setBlockFormat(blockFormat);
+            }
+            if (cell.header) {
+                QTextTableCellFormat cellFormat;
+                cellFormat.setBackground(m_style.theme.markdown.tableHeaderBackground);
+                cellFormat.setFontWeight(QFont::Bold);
+                target->cellAt(row, column).setFormat(cellFormat);
+            }
+        }
+    }
+
+    m_cursor = QTextCursor(m_document);
+    m_cursor.movePosition(QTextCursor::End);
+}
+
+} // namespace
+
+bool MarkdownBuilder::build(QTextDocument *target, const QString &markdown, const RenderStyle &style)
+{
+    Builder builder(target, style);
+    return builder.run(markdown);
+}
