@@ -75,6 +75,20 @@ ThemeDefinition ThemeDefinition::light()
     theme.markdown.tableHeaderBackground = QColor(0xf3, 0xf4, 0xf6);
     theme.markdown.taskOpen = weak;
     theme.markdown.taskDone = QColor(0x1a, 0x7f, 0x37);
+
+    // GitHub-like syntax palette (light).
+    theme.syntax.keyword = QColor(0xcf, 0x22, 0x2e);
+    theme.syntax.function = QColor(0x82, 0x50, 0xdf);
+    theme.syntax.variable = QColor(0x95, 0x38, 0x00);
+    theme.syntax.type = QColor(0x95, 0x38, 0x00);
+    theme.syntax.constant = QColor(0x05, 0x50, 0xae);
+    theme.syntax.comment = QColor(0x6e, 0x77, 0x81);
+    theme.syntax.string = QColor(0x0a, 0x30, 0x69);
+    theme.syntax.preprocessor = QColor(0x05, 0x50, 0xae);
+    theme.syntax.op = QColor(0x05, 0x50, 0xae);
+    theme.syntax.annotation = QColor(0x82, 0x50, 0xdf);
+    theme.syntax.warning = QColor(0x9a, 0x67, 0x00);
+    theme.syntax.error = QColor(0xcf, 0x22, 0x2e);
     return theme;
 }
 
@@ -104,6 +118,20 @@ ThemeDefinition ThemeDefinition::dark()
     theme.markdown.tableHeaderBackground = QColor(0x22, 0x27, 0x2e);
     theme.markdown.taskOpen = weak;
     theme.markdown.taskDone = QColor(0x3f, 0xb9, 0x50);
+
+    // GitHub-like syntax palette (dark).
+    theme.syntax.keyword = QColor(0xff, 0x7b, 0x72);
+    theme.syntax.function = QColor(0xd2, 0xa8, 0xff);
+    theme.syntax.variable = QColor(0xff, 0xa6, 0x57);
+    theme.syntax.type = QColor(0xff, 0xa6, 0x57);
+    theme.syntax.constant = QColor(0x79, 0xc0, 0xff);
+    theme.syntax.comment = QColor(0x8b, 0x94, 0x9e);
+    theme.syntax.string = QColor(0xa5, 0xd6, 0xff);
+    theme.syntax.preprocessor = QColor(0x79, 0xc0, 0xff);
+    theme.syntax.op = QColor(0x79, 0xc0, 0xff);
+    theme.syntax.annotation = QColor(0xd2, 0xa8, 0xff);
+    theme.syntax.warning = QColor(0xd2, 0x99, 0x22);
+    theme.syntax.error = QColor(0xff, 0x7b, 0x72);
     return theme;
 }
 
@@ -142,6 +170,21 @@ QJsonObject ThemeDefinition::toJson() const
     markdownObject.insert(QStringLiteral("taskOpen"), markdown.taskOpen.name());
     markdownObject.insert(QStringLiteral("taskDone"), markdown.taskDone.name());
     object.insert(QStringLiteral("markdown"), markdownObject);
+
+    QJsonObject syntaxObject;
+    syntaxObject.insert(QStringLiteral("keyword"), syntax.keyword.name());
+    syntaxObject.insert(QStringLiteral("function"), syntax.function.name());
+    syntaxObject.insert(QStringLiteral("variable"), syntax.variable.name());
+    syntaxObject.insert(QStringLiteral("type"), syntax.type.name());
+    syntaxObject.insert(QStringLiteral("constant"), syntax.constant.name());
+    syntaxObject.insert(QStringLiteral("comment"), syntax.comment.name());
+    syntaxObject.insert(QStringLiteral("string"), syntax.string.name());
+    syntaxObject.insert(QStringLiteral("preprocessor"), syntax.preprocessor.name());
+    syntaxObject.insert(QStringLiteral("op"), syntax.op.name());
+    syntaxObject.insert(QStringLiteral("annotation"), syntax.annotation.name());
+    syntaxObject.insert(QStringLiteral("warning"), syntax.warning.name());
+    syntaxObject.insert(QStringLiteral("error"), syntax.error.name());
+    object.insert(QStringLiteral("syntax"), syntaxObject);
 
     return object;
 }
@@ -185,6 +228,27 @@ std::optional<ThemeDefinition> ThemeDefinition::fromJson(const QJsonObject &obje
     theme.markdown.taskOpen = color(markdownObject, QStringLiteral("taskOpen"));
     theme.markdown.taskDone = color(markdownObject, QStringLiteral("taskDone"));
 
+    // Syntax colors are optional in a theme file; when absent, derive them from
+    // the palette's lightness so the code still fits the theme.
+    const bool darkPalette = theme.palette.color(QPalette::Window).lightness() < 128;
+    theme.syntax = darkPalette ? ThemeDefinition::dark().syntax : ThemeDefinition::light().syntax;
+
+    const QJsonObject syntaxObject = object.value(QStringLiteral("syntax")).toObject();
+    if (!syntaxObject.isEmpty()) {
+        theme.syntax.keyword = color(syntaxObject, QStringLiteral("keyword"));
+        theme.syntax.function = color(syntaxObject, QStringLiteral("function"));
+        theme.syntax.variable = color(syntaxObject, QStringLiteral("variable"));
+        theme.syntax.type = color(syntaxObject, QStringLiteral("type"));
+        theme.syntax.constant = color(syntaxObject, QStringLiteral("constant"));
+        theme.syntax.comment = color(syntaxObject, QStringLiteral("comment"));
+        theme.syntax.string = color(syntaxObject, QStringLiteral("string"));
+        theme.syntax.preprocessor = color(syntaxObject, QStringLiteral("preprocessor"));
+        theme.syntax.op = color(syntaxObject, QStringLiteral("op"));
+        theme.syntax.annotation = color(syntaxObject, QStringLiteral("annotation"));
+        theme.syntax.warning = color(syntaxObject, QStringLiteral("warning"));
+        theme.syntax.error = color(syntaxObject, QStringLiteral("error"));
+    }
+
     // Reject malformed colour strings rather than silently applying an
     // invalid-builtin theme.
     const QVector<QColor> required = {
@@ -203,6 +267,18 @@ std::optional<ThemeDefinition> ThemeDefinition::fromJson(const QJsonObject &obje
         theme.markdown.tableHeaderBackground,
         theme.markdown.taskOpen,
         theme.markdown.taskDone,
+        theme.syntax.keyword,
+        theme.syntax.function,
+        theme.syntax.variable,
+        theme.syntax.type,
+        theme.syntax.constant,
+        theme.syntax.comment,
+        theme.syntax.string,
+        theme.syntax.preprocessor,
+        theme.syntax.op,
+        theme.syntax.annotation,
+        theme.syntax.warning,
+        theme.syntax.error,
     };
     for (const QColor &value : required) {
         if (!value.isValid())

@@ -26,8 +26,10 @@ opens instantly and re-renders as you type.
   pane.
 - **Images and animations** — images resolve relative to the document; animated
   GIFs play in place.
-- **Themes** — light, dark and *follow the system* (live-switching when the OS
-  changes scheme). Themes are data: any theme can be loaded from a JSON file.
+- **Themes** — light, dark and *follow the system* (which reads the desktop's
+  own colour scheme — e.g. a KDE Plasma scheme, as Dolphin does — and falls back
+  to the platform scheme). Themes are data: any theme can be loaded from JSON,
+  and discovered system schemes are listed in the menu.
 - **GFM** — tables, task lists, strikethrough, autolinks and footnotes.
 
 Curious what it looks like? Open [`feature-showcase.md`](feature-showcase.md)

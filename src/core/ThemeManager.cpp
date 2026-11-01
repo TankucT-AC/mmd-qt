@@ -3,6 +3,8 @@
 
 #include "core/ThemeManager.h"
 
+#include "core/SystemThemeProvider.h"
+
 #include <QGuiApplication>
 #include <QStyleHints>
 
@@ -55,6 +57,12 @@ ThemeDefinition ThemeManager::resolve() const
     case Mode::System:
         break;
     }
+
+    // Prefer the desktop's own colour scheme (e.g. a KDE Plasma scheme, like
+    // Dolphin uses) when one is available; otherwise infer from the platform's
+    // reported colour scheme.
+    if (auto system = SystemThemeProvider::currentSystemTheme())
+        return *system;
 
     const Qt::ColorScheme scheme = QGuiApplication::styleHints()->colorScheme();
     return scheme == Qt::ColorScheme::Dark ? ThemeDefinition::dark() : ThemeDefinition::light();

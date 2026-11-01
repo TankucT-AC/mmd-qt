@@ -21,6 +21,8 @@ add_library(mmd_core STATIC
     core/FileDocument.cpp
     core/ImageResolver.h
     core/ImageResolver.cpp
+    core/SystemThemeProvider.h
+    core/SystemThemeProvider.cpp
     core/MarkdownBuilder.h
     core/MarkdownBuilder.cpp
     editor/MarkdownEditor.h
@@ -31,6 +33,8 @@ add_library(mmd_core STATIC
     viewer/MarkdownView.cpp
     viewer/GifObjectHandler.h
     viewer/GifObjectHandler.cpp
+    viewer/CheckboxObjectHandler.h
+    viewer/CheckboxObjectHandler.cpp
     viewer/CodeHighlighter.h
     viewer/CodeHighlighter.cpp
 )

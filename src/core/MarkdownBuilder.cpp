@@ -7,6 +7,8 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QFontMetricsF>
+#include <QImage>
 #include <QImageReader>
 #include <QStack>
 #include <QTextBlock>
@@ -136,6 +138,13 @@ private:
         bool firstBlock = true;
     };
 
+    struct FrameContext {
+        QTextFrame *frame = nullptr;
+        QTextCursor outerCursor;
+        QTextTableCellFormat quoteCellFormat; // re-applied on close (see popFrame)
+        bool isQuote = false;
+    };
+
     void setPendingBlock(const QTextBlockFormat &format, const QTextCharFormat &base, bool attachToList);
     void startBlock();
     void insertImage(const MD_SPAN_IMG_DETAIL *detail);
@@ -145,6 +154,10 @@ private:
     void removeFrameSpacers();
     void emitTable();
     QString linkFor(const QString &href) const;
+
+    QTextFrame *pushFrame(const QTextFrameFormat &format);
+    QTextFrame *pushQuote();
+    void popFrame();
 
     QTextCharFormat composeCharFormat() const;
     QTextCharFormat bodyCharFormat() const;
@@ -157,7 +170,6 @@ private:
     QTextBlockFormat codeFormat(const QString &language) const;
     QTextFrameFormat codeFrameFormat(const QColor &background) const;
     QTextBlockFormat ruleFormat() const;
-    QTextBlockFormat quoteWrap(QTextBlockFormat format) const;
 
     QTextDocument *m_document = nullptr;
     RenderStyle m_style;
@@ -184,7 +196,7 @@ private:
     bool m_listItemFirstBlockDone = false;
     QVector<QTextListFormat> m_pendingListFormats;
     QVector<QTextList *> m_lists;
-    int m_quoteDepth = 0;
+    QVector<FrameContext> m_frameStack;
 
     bool m_inVerbatimBlock = false;
     bool m_verbatimPendingNewline = false;
@@ -284,8 +296,13 @@ void Builder::startBlock()
 
     if (m_taskPending) {
         QTextCharFormat markerFormat = pending.baseCharFormat;
-        markerFormat.setForeground(m_taskDone ? m_style.theme.markdown.taskDone : m_style.theme.markdown.taskOpen);
-        m_cursor.insertText(QString(m_taskDone ? QChar(0x2611) : QChar(0x2610)) + QLatin1Char(' '), markerFormat);
+        const QFontMetricsF metrics(markerFormat.font());
+        const qreal side = qRound(metrics.height() * 0.8);
+        markerFormat.setObjectType(MarkdownBuilder::checkboxObjectType);
+        markerFormat.setProperty(MarkdownBuilder::checkboxCheckedKey, m_taskDone);
+        markerFormat.setProperty(MarkdownBuilder::checkboxSizeKey, side);
+        m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), markerFormat);
+        m_cursor.insertText(QStringLiteral("  "), pending.baseCharFormat);
         m_taskPending = false;
     }
 }
@@ -297,7 +314,7 @@ QTextCharFormat Builder::composeCharFormat() const
         format.setFontWeight(QFont::Bold);
     if (m_span.em)
         format.setFontItalic(true);
-    if (m_span.del || m_taskDone)
+    if (m_span.del)
         format.setFontStrikeOut(true);
     if (m_span.code) {
         format.setFont(m_style.fonts.codeFont());
@@ -418,16 +435,67 @@ QTextBlockFormat Builder::ruleFormat() const
     return format;
 }
 
-QTextBlockFormat Builder::quoteWrap(QTextBlockFormat format) const
+QTextFrame *Builder::pushFrame(const QTextFrameFormat &format)
 {
-    if (m_quoteDepth == 0)
-        return format;
-    format.setBackground(m_style.theme.markdown.quoteBackground);
-    format.setLeftMargin(format.leftMargin() + 16.0 * m_quoteDepth);
-    format.setRightMargin(format.rightMargin() + 16.0);
-    format.setTopMargin(format.topMargin() + 4);
-    format.setBottomMargin(format.bottomMargin() + 4);
-    return format;
+    FrameContext context;
+    context.outerCursor = m_cursor;
+    context.frame = m_cursor.insertFrame(format);
+    m_firstBlock = false;
+    m_frameStack.append(context);
+    m_cursor = context.frame->firstCursorPosition();
+    return context.frame;
+}
+
+QTextFrame *Builder::pushQuote()
+{
+    // GitHub-style quote: an indent plus a 4px bar on the left, no fill. Only a
+    // table cell supports a single-edge border, so the quote is a 1x1 table.
+    QTextTableFormat tableFormat;
+    tableFormat.setBorder(0);
+    tableFormat.setCellSpacing(0);
+    tableFormat.setCellPadding(0);
+    tableFormat.setMargin(0);
+    QVector<QTextLength> constraints;
+    constraints.append(QTextLength(QTextLength::PercentageLength, 100));
+    tableFormat.setColumnWidthConstraints(constraints);
+
+    FrameContext context;
+    context.outerCursor = m_cursor;
+    QTextTable *table = m_cursor.insertTable(1, 1, tableFormat);
+
+    QTextTableCellFormat cellFormat;
+    cellFormat.setLeftBorder(4);
+    cellFormat.setLeftBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+    cellFormat.setLeftBorderBrush(m_style.theme.markdown.quoteBar);
+    cellFormat.setLeftPadding(14);
+    cellFormat.setTopPadding(4);
+    cellFormat.setBottomPadding(4);
+    table->cellAt(0, 0).setFormat(cellFormat);
+
+    context.frame = table;
+    context.quoteCellFormat = cellFormat;
+    context.isQuote = true;
+    m_frameStack.append(context);
+    m_cursor = table->cellAt(0, 0).firstCursorPosition();
+    // Reuse the cell's existing empty block as the first quote line.
+    m_firstBlock = true;
+    return table;
+}
+
+void Builder::popFrame()
+{
+    if (m_frameStack.isEmpty())
+        return;
+    const FrameContext context = m_frameStack.takeLast();
+    // Cell formats are wiped when the cell's blocks are formatted, so the
+    // quote bar is applied last, once the content is in place.
+    if (context.isQuote) {
+        if (auto *table = qobject_cast<QTextTable *>(context.frame))
+            table->cellAt(0, 0).setFormat(context.quoteCellFormat);
+    }
+    m_cursor = QTextCursor(m_document);
+    m_cursor.setPosition(context.frame->lastPosition() + 1);
+    m_firstBlock = false;
 }
 
 QString Builder::linkFor(const QString &href) const
@@ -449,7 +517,7 @@ int Builder::enterBlock(MD_BLOCKTYPE type, void *detail)
     case MD_BLOCK_DOC:
         break;
     case MD_BLOCK_QUOTE:
-        ++m_quoteDepth;
+        pushQuote();
         break;
     case MD_BLOCK_UL:
     case MD_BLOCK_OL: {
@@ -468,13 +536,13 @@ int Builder::enterBlock(MD_BLOCKTYPE type, void *detail)
             m_taskPending = true;
             m_taskDone = item->task_mark != ' ';
         }
-        setPendingBlock(quoteWrap(paragraphFormat()), bodyCharFormat(), true);
+        setPendingBlock(paragraphFormat(), bodyCharFormat(), true);
         break;
     }
     case MD_BLOCK_H: {
         const auto *heading = static_cast<const MD_BLOCK_H_DETAIL *>(detail);
         const int level = int(heading->level);
-        setPendingBlock(quoteWrap(headingFormat(level)), headingCharFormat(level), false);
+        setPendingBlock(headingFormat(level), headingCharFormat(level), false);
         break;
     }
     case MD_BLOCK_CODE: {
@@ -486,7 +554,7 @@ int Builder::enterBlock(MD_BLOCKTYPE type, void *detail)
         startVerbatimFrame(m_style.theme.markdown.quoteBackground, QString());
         break;
     case MD_BLOCK_P:
-        setPendingBlock(quoteWrap(paragraphFormat()), bodyCharFormat(), m_inListItem && !m_listItemFirstBlockDone);
+        setPendingBlock(paragraphFormat(), bodyCharFormat(), m_inListItem && !m_listItemFirstBlockDone);
         break;
     case MD_BLOCK_HR:
         setPendingBlock(ruleFormat(), ruleCharFormat(), false);
@@ -560,7 +628,7 @@ int Builder::leaveBlock(MD_BLOCKTYPE type, void *detail)
     case MD_BLOCK_DOC:
         break;
     case MD_BLOCK_QUOTE:
-        --m_quoteDepth;
+        popFrame();
         break;
     case MD_BLOCK_UL:
     case MD_BLOCK_OL:
@@ -690,9 +758,8 @@ void Builder::startVerbatimFrame(const QColor &background, const QString &langua
 
     // The frame box is the shaded region: it keeps long lines that wrap and
     // blank lines inside one clean rectangle, with padding all around.
-    m_firstBlock = false;
-    m_verbatimFrame = m_cursor.insertFrame(codeFrameFormat(background));
-    m_verbatimCursor = m_verbatimFrame->firstCursorPosition();
+    m_verbatimFrame = pushFrame(codeFrameFormat(background));
+    m_verbatimCursor = m_cursor;
     m_verbatimCursor.setBlockFormat(m_verbatimBlockFormat);
     m_verbatimCursor.setBlockCharFormat(codeCharFormat());
     m_blockCharFormat = codeCharFormat();
@@ -701,12 +768,8 @@ void Builder::startVerbatimFrame(const QColor &background, const QString &langua
 void Builder::endVerbatimFrame()
 {
     m_inVerbatimBlock = false;
-    if (!m_verbatimFrame)
-        return;
-    // Continue the document after the frame rather than inside it.
-    m_cursor = QTextCursor(m_document);
-    m_cursor.setPosition(m_verbatimFrame->lastPosition() + 1);
     m_verbatimFrame = nullptr;
+    popFrame();
 }
 
 void Builder::removeFrameSpacers()
@@ -824,13 +887,38 @@ void Builder::insertImage(const MD_SPAN_IMG_DETAIL *detail)
         return;
     }
 
+    QImageReader reader(path);
+    QSize natural = reader.size();
+    QSize display = natural;
+    if (natural.isValid() && natural.width() > m_style.maxImageWidth) {
+        display.setWidth(m_style.maxImageWidth);
+        display.setHeight(qRound(qreal(natural.height()) * m_style.maxImageWidth / natural.width()));
+    }
+
+    // SVG is resolution-independent: rasterise it at a multiple of the display
+    // size and hand it to the document as a resource, so scaling stays crisp.
+    if (path.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive) && display.isValid()) {
+        const int oversample = 3;
+        reader.setScaledSize(display * oversample);
+        const QImage rasterised = reader.read();
+        if (!rasterised.isNull()) {
+            const QString name = QStringLiteral("mmd-res-") + QString::number(qHash(path), 16);
+            m_document->addResource(QTextDocument::ImageResource, QUrl(name), rasterised);
+
+            QTextImageFormat format;
+            format.setName(name);
+            format.setWidth(display.width());
+            format.setHeight(display.height());
+            m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+            return;
+        }
+    }
+
     QTextImageFormat format;
     format.setName(path);
-    QImageReader reader(path);
-    const QSize natural = reader.size();
     if (natural.isValid() && natural.width() > m_style.maxImageWidth) {
-        format.setWidth(m_style.maxImageWidth);
-        format.setHeight(qRound(qreal(natural.height()) * m_style.maxImageWidth / natural.width()));
+        format.setWidth(display.width());
+        format.setHeight(display.height());
     }
     m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
 }

@@ -8,6 +8,7 @@
 #include <KSyntaxHighlighting/AbstractHighlighter>
 #include <KSyntaxHighlighting/Definition>
 #include <KSyntaxHighlighting/Repository>
+#include <KSyntaxHighlighting/Theme>
 
 #include <QTextBlock>
 
@@ -37,6 +38,11 @@ protected:
 
 private:
     KSyntaxHighlighting::Definition definitionFor(const QString &language) const;
+
+    // Maps a KSyntaxHighlighting text style onto the theme's code palette.
+    // Returns an invalid color for roles that should keep the block's own text
+    // color.
+    QColor syntaxColor(KSyntaxHighlighting::Theme::TextStyle style) const;
 
     KSyntaxHighlighting::Repository m_repository;
     ThemeDefinition m_themeDefinition;

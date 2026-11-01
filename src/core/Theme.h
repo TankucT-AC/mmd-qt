@@ -31,6 +31,26 @@ struct MarkdownColors {
 };
 
 /*
+ * Syntax-highlighting roles for code blocks, in the spirit of GitHub's palette.
+ * CodeHighlighter maps KSyntaxHighlighting text styles onto these, so code
+ * colors match the application instead of a foreign theme.
+ */
+struct SyntaxColors {
+    QColor keyword;
+    QColor function;
+    QColor variable;
+    QColor type; // data types, classes, built-ins
+    QColor constant; // numbers and constants
+    QColor comment;
+    QColor string;
+    QColor preprocessor;
+    QColor op;
+    QColor annotation;
+    QColor warning;
+    QColor error;
+};
+
+/*
  * A complete theme: application palette plus markdown roles plus the name of
  * the KSyntaxHighlighting theme used for fenced code blocks.
  *
@@ -39,9 +59,10 @@ struct MarkdownColors {
  */
 struct ThemeDefinition {
     QString name;
-    QString syntaxThemeName; // e.g. "Breeze Light", resolved against the KSyntaxHighlighting repository
+    QString syntaxThemeName; // legacy KF6 theme name; code colors come from syntax
     QPalette palette;
     MarkdownColors markdown;
+    SyntaxColors syntax;
 
     static ThemeDefinition light();
     static ThemeDefinition dark();

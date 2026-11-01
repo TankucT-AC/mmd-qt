@@ -42,6 +42,10 @@ QString canonicalLanguage(const QString &language)
 void CodeHighlighter::setThemeDefinition(const ThemeDefinition &theme)
 {
     m_themeDefinition = theme;
+    // A default-constructed theme has no code colors yet; fall back to light so
+    // highlighting still works before a real theme is applied.
+    if (!theme.syntax.keyword.isValid())
+        m_themeDefinition.syntax = ThemeDefinition::light().syntax;
 
     Theme syntaxTheme = m_repository.theme(theme.syntaxThemeName);
     if (!syntaxTheme.isValid())
@@ -92,14 +96,65 @@ void CodeHighlighter::highlight(QTextDocument *document)
     }
 }
 
+QColor CodeHighlighter::syntaxColor(Theme::TextStyle style) const
+{
+    const SyntaxColors &s = m_themeDefinition.syntax;
+    switch (style) {
+    case Theme::Keyword:
+    case Theme::ControlFlow:
+    case Theme::Import:
+        return s.keyword;
+    case Theme::Function:
+        return s.function;
+    case Theme::Variable:
+        return s.variable;
+    case Theme::BuiltIn:
+    case Theme::Extension:
+    case Theme::DataType:
+        return s.type;
+    case Theme::DecVal:
+    case Theme::BaseN:
+    case Theme::Float:
+    case Theme::Constant:
+        return s.constant;
+    case Theme::Comment:
+    case Theme::Documentation:
+    case Theme::CommentVar:
+    case Theme::RegionMarker:
+    case Theme::Information:
+        return s.comment;
+    case Theme::Char:
+    case Theme::SpecialChar:
+    case Theme::String:
+    case Theme::VerbatimString:
+    case Theme::SpecialString:
+        return s.string;
+    case Theme::Preprocessor:
+        return s.preprocessor;
+    case Theme::Operator:
+        return s.op;
+    case Theme::Attribute:
+    case Theme::Annotation:
+        return s.annotation;
+    case Theme::Warning:
+    case Theme::Alert:
+        return s.warning;
+    case Theme::Error:
+        return s.error;
+    default:
+        return QColor(); // Normal and anything unknown keeps the block's color
+    }
+}
+
 void CodeHighlighter::applyFormat(int offset, int length, const Format &format)
 {
     if (length <= 0)
         return;
 
     QTextCharFormat charFormat;
-    if (format.hasTextColor(theme()))
-        charFormat.setForeground(format.textColor(theme()));
+    const QColor color = syntaxColor(format.textStyle());
+    if (color.isValid())
+        charFormat.setForeground(color);
     if (format.isBold(theme()))
         charFormat.setFontWeight(QFont::Bold);
     if (format.isItalic(theme()))

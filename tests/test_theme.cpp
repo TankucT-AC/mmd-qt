@@ -3,12 +3,15 @@
 
 #include <QtTest>
 
+#include "core/SystemThemeProvider.h"
 #include "core/Theme.h"
 #include "core/ThemeManager.h"
 
+#include <QFile>
 #include <QGuiApplication>
 #include <QJsonObject>
 #include <QStyleHints>
+#include <QTemporaryDir>
 
 class ThemeTest : public QObject
 {
@@ -24,6 +27,8 @@ private slots:
     void customThemeRoundTripsThroughJson();
     void customModeUsesProvidedDefinition();
     void malformedColorIsRejected();
+    void kdeSchemeIsParsed();
+    void incompleteSchemeIsRejected();
 
 private:
     static bool setPlatformScheme(Qt::ColorScheme scheme);
@@ -91,6 +96,8 @@ void ThemeTest::explicitModesDoNotFollowPlatform()
 
 void ThemeTest::systemModeFollowsPlatformScheme()
 {
+    if (SystemThemeProvider::currentSystemTheme().has_value())
+        QSKIP("A desktop colour scheme is present; System mode follows it instead of QStyleHints");
     if (!setPlatformScheme(Qt::ColorScheme::Dark))
         QSKIP("This platform cannot override the color scheme");
 
@@ -149,6 +156,44 @@ void ThemeTest::malformedColorIsRejected()
     json.insert(QStringLiteral("markdown"), markdown);
 
     QVERIFY(!ThemeDefinition::fromJson(json).has_value());
+}
+
+void ThemeTest::kdeSchemeIsParsed()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("TestScheme.colors"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(
+        "[General]\nName=TestScheme\nColorScheme=TestScheme\n\n"
+        "[Colors:Window]\nBackgroundNormal=30,32,40\nForegroundNormal=230,237,243\n"
+        "ForegroundInactive=139,148,158\nForegroundLink=88,166,255\nForegroundVisited=210,168,255\n\n"
+        "[Colors:View]\nBackgroundNormal=28,32,40\nForegroundNormal=230,237,243\n\n"
+        "[Colors:Button]\nBackgroundNormal=38,43,53\nForegroundNormal=230,237,243\n\n"
+        "[Colors:Selection]\nBackgroundNormal=88,166,255\nForegroundNormal=255,255,255\n");
+    file.close();
+
+    const std::optional<ThemeDefinition> theme = SystemThemeProvider::loadScheme(path);
+    QVERIFY(theme.has_value());
+    QCOMPARE(theme->name, QStringLiteral("TestScheme"));
+    QCOMPARE(theme->palette.color(QPalette::Window), QColor(30, 32, 40));
+    QCOMPARE(theme->palette.color(QPalette::Link), QColor(88, 166, 255));
+    // A dark scheme derives the dark syntax palette.
+    QCOMPARE(theme->syntax.keyword, ThemeDefinition::dark().syntax.keyword);
+}
+
+void ThemeTest::incompleteSchemeIsRejected()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("Empty.colors"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("[General]\nName=Empty\n");
+    file.close();
+
+    QVERIFY(!SystemThemeProvider::loadScheme(path).has_value());
 }
 
 QTEST_MAIN(ThemeTest)

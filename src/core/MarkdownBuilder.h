@@ -52,11 +52,15 @@ public:
         headingLevelKey,
         languageKey,
         gifPathKey,
+        checkboxCheckedKey,
+        checkboxSizeKey,
     };
 
     // QTextCharFormat object type used for animated images. The viewer
     // registers a QTextObjectInterface handler for it.
     static constexpr int gifObjectType = QTextFormat::UserObject + 1;
+    // Object type used for task-list checkboxes; the viewer draws them.
+    static constexpr int checkboxObjectType = QTextFormat::UserObject + 2;
 
     // Parses markdown and rebuilds target as a rendered document.
     // Returns false only when the parser itself fails.

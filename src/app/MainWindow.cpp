@@ -5,6 +5,7 @@
 
 #include "app/ScrollSync.h"
 #include "core/FileDocument.h"
+#include "core/SystemThemeProvider.h"
 #include "core/ThemeManager.h"
 #include "editor/MarkdownEditor.h"
 #include "viewer/MarkdownView.h"
@@ -160,6 +161,24 @@ void MainWindow::buildMenus()
     }
     themeMenu->addSeparator();
     themeMenu->addAction(tr("Load Theme &File…"), this, &MainWindow::loadThemeFromFile);
+
+    // Discovered desktop colour schemes (e.g. KDE Plasma *.colors), if any.
+    const QVector<SystemThemeProvider::Scheme> schemes = SystemThemeProvider::availableSchemes();
+    if (!schemes.isEmpty()) {
+        QMenu *systemMenu = themeMenu->addMenu(tr("System &Schemes"));
+        for (const SystemThemeProvider::Scheme &scheme : schemes) {
+            const QString path = scheme.path;
+            QAction *action = systemMenu->addAction(scheme.name);
+            connect(action, &QAction::triggered, this, [this, path] {
+                if (const std::optional<ThemeDefinition> theme = SystemThemeProvider::loadScheme(path)) {
+                    m_themes->setCustomTheme(*theme);
+                    m_themes->setMode(ThemeManager::Mode::Custom);
+                    m_customThemeAction->setEnabled(true);
+                    m_customThemeAction->setChecked(true);
+                }
+            });
+        }
+    }
 }
 
 void MainWindow::applyTheme(const ThemeDefinition &theme)

@@ -20,6 +20,7 @@
 #include <QTextList>
 #include <QTextTable>
 #include <QTextTableCell>
+#include <QUrl>
 
 class MarkdownTest : public QObject
 {
@@ -42,6 +43,7 @@ private slots:
     void gfmTable();
     void imageResolvesAgainstBaseDir();
     void animatedImageBecomesObject();
+    void svgIsRasterisedAtHighResolution();
     void horizontalRule();
     void entityDecoding();
     void softBreakStaysOneParagraph();
@@ -279,35 +281,59 @@ void MarkdownTest::taskList()
 {
     QTextDocument document;
     render(&document, QStringLiteral("- [ ] todo\n- [x] done\n"));
-    QString texts[2];
-    int index = 0;
-    for (QTextBlock block = document.firstBlock(); block.isValid() && index < 2; block = block.next()) {
-        if (block.text().contains(QStringLiteral("todo")) || block.text().contains(QStringLiteral("done")))
-            texts[index++] = block.text();
-    }
-    QCOMPARE(texts[0], QStringLiteral("☐ todo"));
-    QCOMPARE(texts[1], QStringLiteral("☑ done"));
 
-    // "done" text must be struck through and "todo" must not.
+    QString todo;
+    QString done;
     for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
-        const int done = block.text().indexOf(QStringLiteral("done"));
-        if (done >= 0)
-            QVERIFY(formatAt(block, done).fontStrikeOut());
-        const int todo = block.text().indexOf(QStringLiteral("todo"));
-        if (todo >= 0)
-            QVERIFY(!formatAt(block, todo).fontStrikeOut());
+        if (block.text().contains(QStringLiteral("todo")))
+            todo = block.text();
+        if (block.text().contains(QStringLiteral("done")))
+            done = block.text();
+    }
+    // The marker is a checkbox object, so the leading glyph is the object
+    // replacement character; the label text follows it.
+    QVERIFY(todo.contains(QStringLiteral("todo")));
+    QVERIFY(done.contains(QStringLiteral("done")));
+
+    // Checked and unchecked items carry the checkbox object type; the checked
+    // one has its "checked" property set.
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (format.objectType() != MarkdownBuilder::checkboxObjectType)
+                continue;
+            const bool checked = format.property(MarkdownBuilder::checkboxCheckedKey).toBool();
+            if (block.text().contains(QStringLiteral("done")))
+                QVERIFY(checked);
+            if (block.text().contains(QStringLiteral("todo")))
+                QVERIFY(!checked);
+        }
+        // Done items must NOT be struck through any more.
+        const int at = block.text().indexOf(QStringLiteral("done"));
+        if (at >= 0)
+            QVERIFY(!formatAt(block, at).fontStrikeOut());
     }
 }
 
 void MarkdownTest::blockQuote()
 {
-    const ThemeDefinition theme = ThemeDefinition::light();
     QTextDocument document;
     render(&document, QStringLiteral("> quoted\n"));
-    const QTextBlock block = document.firstBlock();
-    QCOMPARE(block.text(), QStringLiteral("quoted"));
-    QCOMPARE(block.blockFormat().background().color(), theme.markdown.quoteBackground);
-    QVERIFY(block.blockFormat().leftMargin() > 0.0);
+
+    // The quote is a one-cell table with a left bar; find it and check the bar.
+    bool found = false;
+    for (QTextFrame *frame : document.rootFrame()->childFrames()) {
+        auto *table = qobject_cast<QTextTable *>(frame);
+        if (!table)
+            continue;
+        if (table->cellAt(0, 0).firstCursorPosition().block().text() != QStringLiteral("quoted"))
+            continue;
+        const QTextTableCellFormat cellFormat = table->cellAt(0, 0).format().toTableCellFormat();
+        QVERIFY(cellFormat.leftBorder() > 0.0);
+        QVERIFY(cellFormat.leftPadding() > 0.0);
+        found = true;
+    }
+    QVERIFY(found);
 }
 
 void MarkdownTest::linkSpan()
@@ -406,6 +432,40 @@ void MarkdownTest::animatedImageBecomesObject()
         }
     }
     QVERIFY(found);
+}
+
+void MarkdownTest::svgIsRasterisedAtHighResolution()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QFile svg(dir.filePath(QStringLiteral("badge.svg")));
+    QVERIFY(svg.open(QIODevice::WriteOnly));
+    svg.write(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"20\">"
+        "<rect width=\"100\" height=\"20\" fill=\"#09f\"/></svg>");
+    svg.close();
+
+    QTextDocument document;
+    render(&document, QStringLiteral("![badge](badge.svg)\n"), dir.path());
+
+    QTextImageFormat image;
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid() && !found; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (format.isImageFormat()) {
+                image = format.toImageFormat();
+                found = true;
+            }
+        }
+    }
+    QVERIFY(found);
+    // The SVG is handed over as a document resource, oversampled for crispness.
+    QVERIFY(image.name().startsWith(QStringLiteral("mmd-res-")));
+    const QVariant resource = document.resource(QTextDocument::ImageResource, QUrl(image.name()));
+    QVERIFY(resource.isValid());
+    const QImage rasterised = resource.value<QImage>();
+    QVERIFY(rasterised.width() >= image.width() * 2);
 }
 
 void MarkdownTest::horizontalRule()

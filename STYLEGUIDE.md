@@ -73,17 +73,30 @@ thread — not to diff.
 ## 6. Themes: data, not code
 
 All colors live in `ThemeDefinition` (`src/core/Theme.h`) and are named by role
-— `heading`, `link`, `codeBackground`, `quoteBar` — never by shade. Widgets and
-the renderer must not write literal `QColor`s. `ThemeManager` resolves the
-active `ThemeDefinition` from a *mode* (Light / Dark / System / Custom):
+— `heading`, `link`, `codeBackground`, `quoteBar`, plus a separate `SyntaxColors`
+set for code — never by shade. Widgets and the renderer must not write literal
+`QColor`s. `ThemeManager` resolves the active `ThemeDefinition` from a *mode*
+(Light / Dark / System / Custom):
 
-- **System** follows `QStyleHints::colorScheme()` and reacts to platform changes
-  live, so switching the desktop theme re-tints the running window.
-- **Custom** loads a theme from JSON (`ThemeDefinition::fromJson`), which is the
-  extension point for arbitrary user themes.
+- **System** follows the desktop: it first looks for the desktop's own colour
+  scheme (the KDE `*.colors` files Dolphin uses) via `SystemThemeProvider`, and
+  falls back to `QStyleHints::colorScheme()` when none is present. That provider
+  is plain INI parsing — no KDE dependency — so the app stays portable; on other
+  desktops it simply reports nothing.
+- **Custom** loads a theme from JSON (`ThemeDefinition::fromJson`) or from a
+  discovered system scheme, which is the extension point for arbitrary themes.
 
 Because color is a value type, a theme swap is just `setRenderStyle(newTheme)`
 followed by a rebuild — no code paths fork on "which theme".
+
+### Code colors
+
+Fenced code is highlighted by `CodeHighlighter`, which maps KSyntaxHighlighting
+text styles onto the theme's `SyntaxColors` (a GitHub-like palette). We do **not**
+use KSyntaxHighlighting's own themes for color: those ship a very different
+palette that would clash with the rest of the app. The KF6 theme is still set so
+bold/italic styles resolve, but the foreground always comes from
+`ThemeDefinition::syntax`.
 
 ## 7. Typography
 
