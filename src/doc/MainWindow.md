@@ -11,7 +11,7 @@ external-change prompt, and the title's modified marker.
 ## 2. Project Structure and Dependencies
 
 - Entry point (`src/main.cpp`) creates it.
-- Depends on Qt6 Widgets (`QMainWindow`, menus, dialogs), `core/ThemeManager`, `core/FileDocument`, `editor/MarkdownEditor`, `viewer/MarkdownView`.
+- Depends on Qt6 Widgets (`QMainWindow`, menus, dialogs), `core/ThemeManager`, `core/FontManager`, `core/FileDocument`, `editor/MarkdownEditor`, `viewer/MarkdownView`, `app/FontsDialog`.
 
 ## 3. Class Hierarchy and Role
 
@@ -32,6 +32,13 @@ The two pane widgets, for tests and for focus handling.
 The checkable actions that show/hide each pane (`F9` / `F10`). The shipped
 default is a viewer-only window; the last layout is kept in `QSettings`
 (`view/editorVisible`, `view/viewerVisible`) and restored on the next start.
+
+#### void applyFontChoice(const QString &bodyFamily, const QString &codeFamily)
+
+Typesets the preview and the editor with the chosen families and stores them
+under `fonts/body` and `fonts/code`. Blank families mean the bundled faces, so
+a blank pair resets; `FontsDialog` funnels here on accept, and
+`restoreFontSettings` replays the stored choice at startup.
 
 #### ThemeManager *themeManager() const / MarkdownEditor *editor() const / MarkdownView *viewer() const / FileDocument *fileDocument() const
 

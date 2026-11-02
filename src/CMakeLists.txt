@@ -11,6 +11,8 @@ add_library(mmd_core STATIC
     app/MainWindow.cpp
     app/FindController.h
     app/FindController.cpp
+    app/FontsDialog.h
+    app/FontsDialog.cpp
     app/OutlinePanel.h
     app/OutlinePanel.cpp
     app/SidebarTitleBar.h

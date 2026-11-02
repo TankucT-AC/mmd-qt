@@ -32,6 +32,12 @@ off wrapping.
 Applies the theme: re-highlights the document, sets the widget palette and
 recomputes the current-line highlight.
 
+#### void setCodeFont(const QFont &font)
+
+Sets the source editor's face and recomputes the line-number gutter, which
+measures itself against the font metrics. `MainWindow::applyFontChoice` calls
+it when the reader picks a monospace font.
+
 #### void setMarkdown(const QString &markdown)
 
 Replaces the whole document and re-highlights. Use this instead of
@@ -75,7 +81,7 @@ GUI-thread only (all widgets are).
 ## 14. Inter-Class Interactions
 
 - Owns a `MarkdownHighlighter` on its document.
-- `MainWindow` connects `textChanged` to feed the preview and calls `setTheme` when the theme changes.
+- `MainWindow` connects `textChanged` to feed the preview and calls `setTheme` when the theme changes, `setCodeFont` when the reader picks a font.
 
 ## 16. Usage Example
 

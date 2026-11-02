@@ -98,6 +98,22 @@ FontManager::FontSet FontManager::fontSet() const
     return m_set;
 }
 
+void FontManager::setCustomFonts(const QString &bodyFamily, const QString &codeFamily)
+{
+    m_customBody = bodyFamily;
+    m_customCode = codeFamily;
+}
+
+QString FontManager::customBodyFamily() const
+{
+    return m_customBody;
+}
+
+QString FontManager::customCodeFamily() const
+{
+    return m_customCode;
+}
+
 QFont FontManager::bodyFont() const
 {
     return proportionalFont(bodyPointSize(), QFont::Normal);
@@ -106,10 +122,17 @@ QFont FontManager::bodyFont() const
 QFont FontManager::codeFont() const
 {
     QFont font;
-    if (m_set == FontSet::Bundled)
+    switch (m_set) {
+    case FontSet::Bundled:
         font.setFamily(QStringLiteral("JetBrains Mono"));
-    else
+        break;
+    case FontSet::System:
         font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        break;
+    case FontSet::Custom:
+        font.setFamily(m_customCode.isEmpty() ? QStringLiteral("JetBrains Mono") : m_customCode);
+        break;
+    }
     font.setPointSizeF(codePointSize());
     return font;
 }
@@ -150,10 +173,17 @@ qreal FontManager::headingPointSize(int level)
 QFont FontManager::proportionalFont(qreal pointSize, QFont::Weight weight) const
 {
     QFont font;
-    if (m_set == FontSet::Bundled)
+    switch (m_set) {
+    case FontSet::Bundled:
         font.setFamily(QStringLiteral("Inter"));
-    else
+        break;
+    case FontSet::System:
         font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+        break;
+    case FontSet::Custom:
+        font.setFamily(m_customBody.isEmpty() ? QStringLiteral("Inter") : m_customBody);
+        break;
+    }
     font.setPointSizeF(pointSize);
     font.setWeight(weight);
     return font;

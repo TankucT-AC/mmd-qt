@@ -3,10 +3,13 @@
 ## 1. Class Overview
 
 `FontManager` centralizes typography. It offers markdown prose, code and
-heading fonts in two interchangeable sets: **Bundled** (Inter and JetBrains
-Mono, both OFL, shipped as Qt resources so every machine looks identical) and
-**System** (the platform's proportional and fixed fonts). Heading sizes follow a
-modular scale, so the hierarchy stays proportional if the base size changes.
+heading fonts in three interchangeable sets: **Bundled** (Inter and JetBrains
+Mono, both OFL, shipped as Qt resources so every machine looks identical),
+**System** (the platform's proportional and fixed fonts) and **Custom**
+(concrete families picked from the ones installed on this machine — the
+Fonts dialog's output; a blank member falls back to its bundled face, so a
+choice can be partial). Heading sizes follow a modular scale, so the hierarchy
+stays proportional if the base size changes.
 
 ## 2. Project Structure and Dependencies
 
@@ -24,6 +27,7 @@ A plain class with no base and no `Q_OBJECT`. Copyable and cheap.
 |-------|-------------|
 | `FontSet::Bundled` | Inter for prose, JetBrains Mono for code (default). |
 | `FontSet::System` | `QFontDatabase::systemFont(GeneralFont/FixedFont)`. |
+| `FontSet::Custom` | The families set by `setCustomFonts`; a blank member falls back to the bundled face. |
 
 ## 9. Public Methods
 
@@ -41,6 +45,12 @@ Constructs a manager for a font set and ensures the bundled faces are registered
 
 Selects or reports the active set. Changing it later affects subsequently
 returned fonts; callers re-fetch and re-apply.
+
+#### void setCustomFonts(const QString &bodyFamily, const QString &codeFamily) / QString customBodyFamily() const / QString customCodeFamily() const
+
+Chooses the concrete families the `Custom` set resolves to. A blank member
+keeps the bundled face, so a partial choice is valid — a custom code font can
+pair with the bundled text font. The sizes and weights are unaffected.
 
 #### QFont bodyFont() const
 

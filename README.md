@@ -59,7 +59,7 @@ native.
 | **Two panes** | Editable source on the left, live preview on the right. Each pane can be hidden on its own. |
 | **Live preview** | Edits render immediately; a burst of keystrokes is coalesced into one rebuild and the scroll position is kept. The two panes scroll in step. |
 | **Reading width** | The preview column is capped and centred, so a wide window keeps a comfortable line length instead of stretching edge to edge. |
-| **Typography** | Bundled [Inter](third_party/fonts/inter) for prose and [JetBrains Mono](third_party/fonts/jetbrains-mono) for code (both OFL), switchable to the system fonts. |
+| **Typography** | Bundled [Inter](third_party/fonts/inter) for prose and [JetBrains Mono](third_party/fonts/jetbrains-mono) for code (both OFL). Any font installed on the system can replace them via **View → Fonts…**; the bundled pair comes back with one click. |
 | **Code highlighting** | Fenced code blocks are highlighted per language by KDE's KSyntaxHighlighting, coloured from a theme-matched palette. Markdown itself is highlighted in the source pane. |
 | **Images & animation** | Images resolve relative to the document; PNG, JPEG, WebP, **SVG** (rendered crisp and antialiased) and **animated GIF** all display. |
 | **GFM** | Tables, task lists, strikethrough and autolinks. |
@@ -154,10 +154,13 @@ mmd --preview notes.md   # open with the source pane hidden
 
 Themes live under **View → Theme**: *Follow System*, *Light*, *Dark*, *Custom*,
 a list of **System Schemes** discovered on your desktop, and **Load Theme
-File…** to open any theme from JSON. External edits to an open file are picked
-up automatically; if you have unsaved changes you are asked before they are
-replaced. The sidebar remembers the last folder you opened, and the **Outline**
-tab follows the preview as you scroll.
+File…** to open any theme from JSON. **View → Fonts…** picks the text and
+monospace faces from the fonts installed on your system; the bundled pair is
+the default and the dialog's *Use bundled fonts* button restores it. The theme,
+the font choice and the pane layout are remembered across runs. External edits
+to an open file are picked up automatically; if you have unsaved changes you
+are asked before they are replaced. The sidebar remembers the last folder you
+opened, and the **Outline** tab follows the preview as you scroll.
 
 ## Architecture
 

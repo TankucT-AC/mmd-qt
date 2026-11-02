@@ -10,7 +10,8 @@ the public surface, ownership, threading and how the class fits into the app.
 | [MarkdownBuilder.md](MarkdownBuilder.md) | Turns markdown source into a rendered `QTextDocument` using md4c. |
 | [Theme.md](Theme.md) | Semantic theme definition: palette, markdown roles, syntax theme name; JSON round-trip. |
 | [ThemeManager.md](ThemeManager.md) | Resolves Light/Dark/System/Custom into the active theme and emits on change. |
-| [FontManager.md](FontManager.md) | Bundled/system fonts and the modular heading scale. |
+| [FontManager.md](FontManager.md) | Bundled/system/custom fonts and the modular heading scale. |
+| [FontsDialog.md](FontsDialog.md) | The View → Fonts… dialog: text and monospace faces from the installed families. |
 | [ImageResolver.md](ImageResolver.md) | Resolves markdown image references to local paths and detects animation. |
 | [FileDocument.md](FileDocument.md) | Loads, saves and watches the document file on disk. |
 | [SystemThemeProvider.md](SystemThemeProvider.md) | Reads the desktop's own colour schemes (KDE `*.colors`). |

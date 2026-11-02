@@ -26,6 +26,10 @@ public:
 
     void setTheme(const ThemeDefinition &theme);
 
+    // The source editor's face. Also recomputes the line-number gutter, which
+    // measures itself against the font metrics.
+    void setCodeFont(const QFont &font);
+
     // Applies the document-size policy. Above a threshold the markdown
     // highlighter is detached: re-highlighting a huge file on every keystroke
     // costs far more than the colours are worth.

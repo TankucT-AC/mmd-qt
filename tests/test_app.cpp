@@ -23,6 +23,8 @@ private slots:
     void windowOpensWithViewerOnlyByDefault();
     void panelsCanBeClosedAndReopened();
     void paneLayoutPersistsAcrossWindows();
+    void fontsApplyToPreviewAndEditor();
+    void fontChoicePersistsAcrossWindows();
     void themeChangeUpdatesApplicationPalette();
     void typingUpdatesPreview();
     void openingFileLoadsContentAndTitle();
@@ -217,6 +219,45 @@ void AppTest::paneLayoutPersistsAcrossWindows()
     }
 
     settings.remove(QStringLiteral("view"));
+}
+
+void AppTest::fontsApplyToPreviewAndEditor()
+{
+    QSettings().remove(QStringLiteral("fonts"));
+    MainWindow window;
+    window.show();
+
+    window.applyFontChoice(QStringLiteral("Georgia"), QStringLiteral("Courier New"));
+
+    const RenderStyle &style = window.viewer()->renderStyle();
+    QCOMPARE(style.fonts.bodyFont().family(), QStringLiteral("Georgia"));
+    QCOMPARE(style.fonts.codeFont().family(), QStringLiteral("Courier New"));
+    QCOMPARE(window.editor()->font().family(), QStringLiteral("Courier New"));
+
+    // A blank pair is the way back to the bundled faces.
+    window.applyFontChoice(QString(), QString());
+    QCOMPARE(window.viewer()->renderStyle().fonts.bodyFont().family(), QStringLiteral("Inter"));
+    QCOMPARE(window.editor()->font().family(), QStringLiteral("JetBrains Mono"));
+}
+
+void AppTest::fontChoicePersistsAcrossWindows()
+{
+    QSettings settings;
+    settings.remove(QStringLiteral("fonts"));
+
+    {
+        MainWindow window;
+        window.applyFontChoice(QStringLiteral("Georgia"), QStringLiteral("Courier New"));
+    }
+    // A fresh window must typeset with the saved families.
+    {
+        MainWindow window;
+        QCOMPARE(window.viewer()->renderStyle().fonts.bodyFont().family(), QStringLiteral("Georgia"));
+        QCOMPARE(window.viewer()->renderStyle().fonts.codeFont().family(), QStringLiteral("Courier New"));
+        QCOMPARE(window.editor()->font().family(), QStringLiteral("Courier New"));
+    }
+
+    settings.remove(QStringLiteral("fonts"));
 }
 
 void AppTest::themeModePersistsAcrossWindows()

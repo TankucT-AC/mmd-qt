@@ -5,6 +5,7 @@
 
 #include "app/FileTreePanel.h"
 #include "app/FindController.h"
+#include "app/FontsDialog.h"
 #include "app/OutlinePanel.h"
 #include "app/SidebarTitleBar.h"
 #include "core/FileDocument.h"
@@ -22,6 +23,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QLabel>
@@ -86,6 +88,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     applyTheme(m_themes->currentTheme());
     restoreThemeSettings();
+    restoreFontSettings();
     setFolder(QSettings().value(QStringLiteral("files/folder")).toString());
     updateWindowTitle();
     resize(1200, 800);
@@ -320,6 +323,10 @@ void MainWindow::buildMenus()
             });
         }
     }
+
+    // Pick the faces out of the ones installed on this machine; the bundled
+    // pair stays the default and one click brings it back.
+    viewMenu->addAction(tr("&Fonts…"), this, &MainWindow::chooseFonts);
 }
 
 void MainWindow::applyTheme(const ThemeDefinition &theme)
@@ -577,6 +584,47 @@ void MainWindow::persistPaneSettings()
     QSettings settings;
     settings.setValue(QStringLiteral("view/editorVisible"), m_toggleEditor->isChecked());
     settings.setValue(QStringLiteral("view/viewerVisible"), m_toggleViewer->isChecked());
+}
+
+void MainWindow::restoreFontSettings()
+{
+    QSettings settings;
+    applyFontChoice(settings.value(QStringLiteral("fonts/body")).toString(), settings.value(QStringLiteral("fonts/code")).toString());
+}
+
+void MainWindow::applyFontChoice(const QString &bodyFamily, const QString &codeFamily)
+{
+    QSettings settings;
+    if (bodyFamily.isEmpty() && codeFamily.isEmpty()) {
+        settings.remove(QStringLiteral("fonts"));
+    } else {
+        settings.setValue(QStringLiteral("fonts/body"), bodyFamily);
+        settings.setValue(QStringLiteral("fonts/code"), codeFamily);
+    }
+
+    FontManager fonts;
+    if (!bodyFamily.isEmpty() || !codeFamily.isEmpty()) {
+        fonts.setFontSet(FontManager::FontSet::Custom);
+        fonts.setCustomFonts(bodyFamily, codeFamily);
+    }
+
+    RenderStyle style = m_viewer->renderStyle();
+    style.fonts = fonts;
+    m_viewer->setRenderStyle(style);
+    m_editor->setCodeFont(fonts.codeFont());
+}
+
+void MainWindow::chooseFonts()
+{
+    FontsDialog dialog(this);
+    // Offer what is on screen right now, so cancelling changes nothing.
+    const RenderStyle &style = m_viewer->renderStyle();
+    dialog.setBodyFamily(QFontInfo(style.fonts.bodyFont()).family());
+    dialog.setCodeFamily(QFontInfo(style.fonts.codeFont()).family());
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    applyFontChoice(dialog.bodyFamily(), dialog.codeFamily());
 }
 
 void MainWindow::loadThemeFromFile()

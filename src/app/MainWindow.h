@@ -44,6 +44,11 @@ public:
     // Opens a document by path; returns false and reports the error otherwise.
     bool openFile(const QString &path);
 
+    // Typesets the preview and the editor with the chosen families and keeps
+    // the choice in QSettings. Blank families mean the bundled faces, so a
+    // blank pair resets to them; the Fonts dialog funnels here.
+    void applyFontChoice(const QString &bodyFamily, const QString &codeFamily);
+
     // Saves the current document (prompting for a path when untitled).
     bool saveFile();
 
@@ -60,6 +65,8 @@ private:
     void persistThemeSettings();
     void restorePaneSettings();
     void persistPaneSettings();
+    void restoreFontSettings();
+    void chooseFonts();
 
     void updateStatusBar();
     void updateRenderStatus();

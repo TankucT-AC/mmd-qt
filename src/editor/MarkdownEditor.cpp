@@ -64,6 +64,12 @@ void MarkdownEditor::setTheme(const ThemeDefinition &theme)
     applyExtraSelections();
 }
 
+void MarkdownEditor::setCodeFont(const QFont &font)
+{
+    setFont(font);
+    updateLineNumberAreaWidth();
+}
+
 void MarkdownEditor::setDocumentLimits(const DocumentLimits &limits)
 {
     setHighlightingEnabled(limits.editorHighlightEnabled());
