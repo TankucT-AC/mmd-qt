@@ -110,16 +110,25 @@ QVector<HtmlToken> parseHtmlFragment(const QString &html)
     QVector<HtmlToken> tokens;
     int index = 0;
 
+    const auto appendText = [&tokens](const QString &text, int start, int end) {
+        HtmlToken token;
+        token.kind = HtmlToken::Text;
+        token.text = text;
+        token.start = start;
+        token.end = end;
+        tokens.append(token);
+    };
+
     while (index < html.size()) {
         const int lt = int(html.indexOf(QLatin1Char('<'), index));
 
         if (lt < 0) {
-            tokens.append({HtmlToken::Text, QString(), {}, html.mid(index), false});
+            appendText(html.mid(index), index, int(html.size()));
             break;
         }
 
         if (lt > index)
-            tokens.append({HtmlToken::Text, QString(), {}, html.mid(index, lt - index), false});
+            appendText(html.mid(index, lt - index), index, lt);
 
         // Comment.
         if (html.mid(lt, 4) == QLatin1String("<!--")) {
@@ -127,8 +136,10 @@ QVector<HtmlToken> parseHtmlFragment(const QString &html)
             HtmlToken token;
             token.kind = HtmlToken::Comment;
             token.text = end < 0 ? html.mid(lt + 4) : html.mid(lt + 4, end - lt - 4);
+            token.start = lt;
+            token.end = end < 0 ? int(html.size()) : end + 3;
             tokens.append(token);
-            index = end < 0 ? int(html.size()) : end + 3;
+            index = token.end;
             continue;
         }
 
@@ -138,8 +149,10 @@ QVector<HtmlToken> parseHtmlFragment(const QString &html)
             HtmlToken token;
             token.kind = HtmlToken::Declaration;
             token.text = end < 0 ? html.mid(lt + 2) : html.mid(lt + 2, end - lt - 2);
+            token.start = lt;
+            token.end = end < 0 ? int(html.size()) : end + 1;
             tokens.append(token);
-            index = end < 0 ? int(html.size()) : end + 1;
+            index = token.end;
             continue;
         }
 
@@ -151,9 +164,11 @@ QVector<HtmlToken> parseHtmlFragment(const QString &html)
             token.name = readName(html, cursor);
             const int end = int(html.indexOf(QLatin1Char('>'), cursor));
             index = end < 0 ? int(html.size()) : end + 1;
+            token.start = lt;
+            token.end = index;
             if (token.name.isEmpty()) {
                 // "</" with no name: treat as text.
-                tokens.append({HtmlToken::Text, QString(), {}, html.mid(lt, index - lt), false});
+                appendText(html.mid(lt, index - lt), lt, index);
             } else {
                 tokens.append(token);
             }
@@ -164,7 +179,7 @@ QVector<HtmlToken> parseHtmlFragment(const QString &html)
         int cursor = lt + 1;
         const QString name = readName(html, cursor);
         if (name.isEmpty()) {
-            tokens.append({HtmlToken::Text, QString(), {}, QStringLiteral("<"), false});
+            appendText(QStringLiteral("<"), lt, lt + 1);
             index = lt + 1;
             continue;
         }
@@ -190,6 +205,8 @@ QVector<HtmlToken> parseHtmlFragment(const QString &html)
         }
         const int end = int(html.indexOf(QLatin1Char('>'), cursor));
         index = end < 0 ? int(html.size()) : end + 1;
+        token.start = lt;
+        token.end = index;
 
         if (token.selfClosing || isHtmlVoidElement(name))
             token.kind = HtmlToken::SelfClosingTag;

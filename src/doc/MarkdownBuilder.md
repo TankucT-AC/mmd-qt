@@ -46,6 +46,7 @@ passes (notably `CodeHighlighter`) can find blocks without re-parsing.
 | `PropertyKey::headingLevelKey` | Heading level (1–6) stored on a heading block format. |
 | `PropertyKey::languageKey` | The info-string language of a code block, e.g. `cpp`. |
 | `PropertyKey::gifPathKey` | Filesystem path of an animated image stored on its object char format. |
+| `PropertyKey::imageAltKey` | Alt text of a remote image, kept on the image format so a failed download can fall back to its chip. |
 | `PropertyKey::sourceLineKey` | Zero-based source line a block was built from; what click-to-source resolves. |
 
 | Constant | Value | Description |
@@ -61,6 +62,13 @@ cleared first and filled in place. Returns `false` only when the parser itself
 fails; it does not throw and does not touch any GUI state. The target needs no
 object handlers and no layout work to be attached — the view builds into a
 detached document and swaps it in once the text is complete.
+
+Remote `http(s)` references are handled according to `RenderStyle`: with
+`remoteImagesEnabled` set the builder emits a `QTextImageFormat` named by the
+URL (plus the alt text under `imageAltKey`) and the viewer downloads it; with
+the flag clear — or for a reference that is not an image the viewer can load —
+the alt text becomes an inline chip, exactly as before. The builder itself
+never touches the network.
 
 ## 11. Ownership and Lifecycle
 
@@ -81,6 +89,47 @@ in the worker and hand it back.
 - `MarkdownView` calls `build()` and then `CodeHighlighter::highlight()` on the result.
 - `MarkdownView` registers a `GifObjectHandler` for `gifObjectType`, which the builder emits for animated images.
 - `MarkdownView::sourceLineAt` reads `sourceLineKey` back off a block, which is how a click in the preview finds the line to put the editor's caret on.
+- `core/HtmlFragment` tokenizes the raw HTML md4c hands over as `MD_BLOCK_HTML` / `MD_SPAN_HTML`.
+
+## 15. HTML Rendering
+
+md4c passes HTML through as raw text, the CommonMark way. `MarkdownBuilder`
+renders it with a tolerant walk (`renderHtmlFragment`) rather than a second
+markdown pass:
+
+- Block containers are recognized by name. A container whose closing tag is in
+  the same HTML block is rendered by running its inner markup back through the
+  builder in a scratch document and pasting the result in with the container's
+  alignment — which is why a `<td>` holding markdown comes out the way GitHub
+  shows it (bold, lists, images and all).
+- A block container that spans several markdown blocks — `<div align="center">`
+  or `<p align="right">` with a blank line inside, where CommonMark ends the
+  HTML block — is remembered on a stack and its alignment is applied to every
+  block until the closing tag arrives.
+- Block-level HTML tables are lifted out of the source before parsing
+  (`extractHtmlTables`): with blank lines between their parts they would
+  otherwise reach the builder as a scatter of fragments. Each table is replaced
+  by a one-line marker that the block renderer expands into a real `QTextTable`,
+  keeping the source line count so click-to-source stays correct.
+- Inside a container, markdown is re-parsed by a nested `build()` call; SVG
+  resources the inner build rasterised are copied over (`copyHtmlResources`)
+  because a document fragment carries formats, not resources.
+- Image widths come from the HTML `width` attribute and are parsed apart
+  (`parseHtmlLength`): a bare number is pixels, capped to
+  `RenderStyle::maxImageWidth`, while a percentage is a fraction of the text
+  column the pane currently has (`RenderStyle::contentWidth`, falling back to
+  `maxContentWidth`). Reading `"100%"` as the digits `"100"` used to draw a
+  full-width banner at 100 px. Qt 6.12 ignores `QTextImageFormat::maximumWidth`
+  when drawing, so the width is resolved to pixels at build time; the view
+  re-renders when the column changes, so a hero keeps fitting an open editor
+  pane instead of overflowing it.
+- A scaled raster image is resampled *smoothly* once and handed over as a
+  resource (`QImage::scaled(..., Qt::SmoothTransformation)`); the text layout
+  paints a scaled image without interpolation, so a big screenshot looked rough
+  left to it.
+- An HTML image block uses a plain block format, not the paragraph one. The
+  122% line height meant for prose stretched an image's line by a fifth of the
+  image, so every hero left a visible gap below it.
 
 ## 16. Usage Example
 

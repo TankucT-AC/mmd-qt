@@ -62,8 +62,9 @@ native.
 | **Typography** | Bundled [Inter](third_party/fonts/inter) for prose and [JetBrains Mono](third_party/fonts/jetbrains-mono) for code (both OFL). Any font installed on the system can replace them via **View → Fonts…**; the bundled pair comes back with one click. |
 | **Code highlighting** | Fenced code blocks are highlighted per language by KDE's KSyntaxHighlighting, coloured from a theme-matched palette. Markdown itself is highlighted in the source pane. |
 | **Images & animation** | Images resolve relative to the document; PNG, JPEG, WebP, **SVG** (rendered crisp and antialiased) and **animated GIF** all display. |
+| **Remote images** | `http(s)` images — shields.io badges, GitHub-hosted banners and icons — are downloaded in the background and cached on disk, so a document opened twice is instant and works offline. Only `http`/`https` are followed, loopback and private addresses are refused, redirects are re-checked per hop, responses are size-capped and the bytes (not the content type) decide whether something is an image. Toggle **View → Load Remote Images** to keep the viewer off the network entirely, in which case such images fall back to their alt-text chip. |
 | **GFM** | Tables, task lists, strikethrough and autolinks. |
-| **HTML inserts** | A tolerant subset of the HTML found in real READMEs — centred hero blocks, `<details>`/`<summary>`, tables, badges as offline chips, inline tags and `[!NOTE]` callouts. |
+| **HTML inserts** | A tolerant subset of the HTML found in real READMEs — centred hero blocks (a block with `align="center"`, e.g. a centred paragraph), `<details>`/`<summary>`, HTML tables whose cells keep their markdown (`**bold**`, lists, images), badges as offline chips, inline tags (`<sub>`, `<kbd>`, …) and `[!NOTE]` callouts. |
 | **Copy code** | Hover a fenced block to reveal a copy button; one click puts its text on the clipboard. |
 | **Themes** | Light, Dark, **Follow System** (reads the desktop's own colour scheme — e.g. a KDE Plasma scheme, as Dolphin does) and Custom. Themes are data: any theme loads from JSON, and discovered system schemes are listed in the menu. The choice is remembered across runs. |
 | **Files** | Open, save, and follow external changes on disk — including the atomic-replace pattern most editors use. |
@@ -156,8 +157,10 @@ Themes live under **View → Theme**: *Follow System*, *Light*, *Dark*, *Custom*
 a list of **System Schemes** discovered on your desktop, and **Load Theme
 File…** to open any theme from JSON. **View → Fonts…** picks the text and
 monospace faces from the fonts installed on your system; the bundled pair is
-the default and the dialog's *Use bundled fonts* button restores it. The theme,
-the font choice and the pane layout are remembered across runs. External edits
+the default and the dialog's *Use bundled fonts* button restores it.
+**View → Load Remote Images** controls whether images referenced by `http(s)`
+URL are downloaded. The theme, the font choice, the pane layout and the remote
+image setting are remembered across runs. External edits
 to an open file are picked up automatically; if you have unsaved changes you
 are asked before they are replaced. The sidebar remembers the last folder you
 opened, and the **Outline** tab follows the preview as you scroll.
@@ -177,7 +180,7 @@ app/  ──▶  editor/  ──▶  core/        (MarkdownEditor, MarkdownHighl
 
 core/  MarkdownBuilder · Outline · FindState · DocumentLimits · MathRenderer ·
        Theme · ThemeManager · FontManager · FileDocument · ImageResolver ·
-       SystemThemeProvider · HtmlFragment
+       ImageFetcher · SystemThemeProvider · HtmlFragment
 ```
 
 - **`core`** includes nothing from the layers above it, so the renderer
@@ -198,7 +201,7 @@ See [`STYLEGUIDE.md`](STYLEGUIDE.md) for the full rationale.
 ```text
 src/app/      MainWindow, sidebar panels, find controller
 src/core/     markdown -> QTextDocument, outline, search, size policy,
-              themes, fonts, files
+              themes, fonts, files, remote image fetching
 src/editor/   the source pane: text editor + markdown highlighter
 src/viewer/   the preview pane + code highlighting + find strip + animated images
 tests/        one QTest binary per module, run through CTest

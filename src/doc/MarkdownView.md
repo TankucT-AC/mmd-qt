@@ -18,6 +18,16 @@ Decoded images live in a cache owned by the view, so no render re-decodes what a
 earlier one already showed; the object handlers re-register on the layout of
 whatever document is showing.
 
+Remote `http(s)` images are downloaded in the background by an owned
+`core/ImageFetcher`. `PreviewDocument::loadResource` returns an empty resource
+for a remote URL and schedules the fetch for the next event-loop turn; when the
+image arrives the view stores it in the shared cache, installs it as the
+document resource and re-lays out just the blocks that hold it. A download that
+fails is replaced by a chip carrying the image's alt text, drawn once and cached
+under the same URL so the row settles instead of staying an empty gap. With
+`setRemoteImagesEnabled(false)` the builder never emits remote image objects and
+the alt-text chip is used from the start.
+
 It also answers click-to-source: the builder stamps every block with the source
 line it came from, and a plain click reports that line so the editor can put its
 caret there. The two panes scroll independently on purpose: rendered and source
@@ -119,6 +129,17 @@ selection.
 
 Base: `QTextBrowser`. Draws the copy button over the hovered code box.
 
+#### void resizeEvent(QResizeEvent *event) [override]
+
+Base: `QTextBrowser`. Re-centres the content column, deferred to the next
+event-loop turn because setting margins inside the handler has no effect until
+the next layout pass. It then compares the column width with the one the current
+render was built for (`m_lastColumnWidth`); when it differs — a resized window,
+an opened editor pane — it schedules a re-render so percentage image widths
+(`width="100%"`) resolve against the new column and keep fitting instead of
+overflowing. A device-pixel-ratio change drops the remote-image cache and
+renders at once.
+
 ## 11. Ownership and Lifecycle
 
 Widget; parent-owned. The code highlighter is an owned child; the GIF handler is a child of the view and is registered, not owned, by the document layout.
@@ -130,7 +151,7 @@ GUI-thread only. Re-rendering touches the document and the scrollbar.
 ## 14. Inter-Class Interactions
 
 - `MainWindow` connects the editor's `textChanged` to `setMarkdown`, calls `renderNow()` on splitter movement, and calls `setRenderStyle` on theme changes.
-- Calls `MarkdownBuilder::build` and `CodeHighlighter::highlight` on each rebuild.
+- Calls `MarkdownBuilder::build` and `CodeHighlighter::highlight` on each rebuild. Before the build it resolves the pane's live column width into `RenderStyle::contentWidth`, which the builder uses for percentage image widths. After the build it pre-scales fetched remote images (`fitRemoteImages`) to the size the document draws them at, so the text layout paints them 1:1 and sharp.
 
 ## 16. Usage Example
 

@@ -7,6 +7,7 @@
 #include "core/MarkdownBuilder.h"
 #include "core/Theme.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QDir>
 #include <QFile>
 #include <QFontInfo>
@@ -41,7 +42,17 @@ private slots:
     void calloutIsRendered();
     void headingSlugsMatchGithubStyle();
     void htmlImageHonoursWidthAttribute();
+    void htmlPercentWidthFillsTheContentColumn();
+    void htmlPercentWidthOnRemoteImageIsSetBeforeLoad();
+    void htmlWidthWithoutDigitsIsIgnored();
+    void htmlPercentWidthFollowsTheLiveColumn();
+    void htmlBlockImageIsNotStretchedToTheLineHeight();
+    void standaloneBreakDoesNotMergeIntoTheNextImage();
     void htmlImageInsideCenteredDivIsCentered();
+    void htmlParagraphAlignCentersMarkdownBlocks();
+    void htmlTableCellsRenderTheirMarkdown();
+    void htmlTableWithBlankLinesBecomesATable();
+    void htmlBadgeRowStaysOnOneLine();
     void readmeRendersWithoutLiteralHtml();
     void boldEmphasisInParagraph();
     void inlineCodeSpan();
@@ -785,6 +796,104 @@ void MarkdownTest::htmlImageInsideCenteredDivIsCentered()
     QVERIFY(found);
 }
 
+void MarkdownTest::htmlParagraphAlignCentersMarkdownBlocks()
+{
+    // <p align="center"> wraps markdown: CommonMark breaks the HTML block at
+    // the blank line, so the heading arrives as an ordinary markdown block and
+    // the alignment has to reach it.
+    QTextDocument document;
+    render(&document, QStringLiteral("<p align=\"center\">\n\n# Title\n\n</p>\n"));
+
+    QTextBlock block;
+    for (QTextBlock candidate = document.firstBlock(); candidate.isValid(); candidate = candidate.next()) {
+        if (candidate.text() == QStringLiteral("Title"))
+            block = candidate;
+    }
+    QVERIFY(block.isValid());
+    QCOMPARE(block.blockFormat().alignment(), Qt::AlignHCenter);
+}
+
+void MarkdownTest::htmlTableCellsRenderTheirMarkdown()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("<table><tr><td>**bold**</td><td>plain</td></tr></table>\n"));
+
+    QTextTable *table = nullptr;
+    for (QTextFrame::iterator it = document.rootFrame()->begin(); !it.atEnd(); ++it)
+        if (auto *candidate = qobject_cast<QTextTable *>(it.currentFrame()))
+            table = candidate;
+    QVERIFY(table != nullptr);
+    QCOMPARE(table->rows(), 1);
+    QCOMPARE(table->columns(), 2);
+
+    // The cell text keeps the markdown: the word comes through bold.
+    const QTextBlock cellBlock = table->cellAt(0, 0).firstCursorPosition().block();
+    QCOMPARE(cellBlock.text(), QStringLiteral("bold"));
+    QVERIFY(formatAt(cellBlock, 0).fontWeight() >= QFont::Bold);
+    QCOMPARE(table->cellAt(0, 1).firstCursorPosition().block().text(), QStringLiteral("plain"));
+}
+
+void MarkdownTest::htmlTableWithBlankLinesBecomesATable()
+{
+    // The NEXUS.md shape: a table whose cells contain markdown and blank lines,
+    // which CommonMark would otherwise scatter across several HTML blocks.
+    QTextDocument document;
+    render(&document,
+           QStringLiteral("<table>\n<tr>\n<td width=\"50%\">\n\n**left**\n\n- one\n- two\n\n</td>\n"
+                          "<td width=\"50%\">\n\nright text\n\n</td>\n</tr>\n</table>\n"));
+
+    QTextTable *table = nullptr;
+    for (QTextFrame::iterator it = document.rootFrame()->begin(); !it.atEnd(); ++it)
+        if (auto *candidate = qobject_cast<QTextTable *>(it.currentFrame()))
+            table = candidate;
+    QVERIFY(table != nullptr);
+    QCOMPARE(table->rows(), 1);
+    QCOMPARE(table->columns(), 2);
+
+    const QTextBlock first = table->cellAt(0, 0).firstCursorPosition().block();
+    QCOMPARE(first.text(), QStringLiteral("left"));
+    QVERIFY(formatAt(first, 0).fontWeight() >= QFont::Bold);
+
+    QTextCursor cell = table->cellAt(0, 0).firstCursorPosition();
+    bool hasList = false;
+    for (QTextBlock block = cell.block(); block.isValid(); block = block.next()) {
+        if (block.textList())
+            hasList = true;
+    }
+    QVERIFY(hasList);
+}
+
+void MarkdownTest::htmlBadgeRowStaysOnOneLine()
+{
+    // A row of remote-image badges (each its own <img> line, as READMEs write
+    // them) must come out as one line of chips, not one block per badge.
+    QTextDocument document;
+    render(&document,
+           QStringLiteral("<p align=\"center\">\n\n"
+                          "  <img src=\"https://example.com/a.svg\" alt=\"alpha\">\n"
+                          "  <img src=\"https://example.com/b.svg\" alt=\"beta\">\n"
+                          "  <img src=\"https://example.com/c.svg\" alt=\"gamma\">\n\n"
+                          "</p>\n"));
+
+    int chipBlocks = 0;
+    int chips = 0;
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+        int inBlock = 0;
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().objectType() == MarkdownBuilder::chipObjectType)
+                ++inBlock;
+        }
+        if (inBlock > 0) {
+            ++chipBlocks;
+            chips += inBlock;
+        }
+        if (inBlock > 0)
+            QCOMPARE(block.blockFormat().alignment(), Qt::AlignHCenter);
+    }
+    QCOMPARE(chipBlocks, 1); // all three chips on one line
+    QCOMPARE(chips, 3);
+}
+
 void MarkdownTest::htmlImageHonoursWidthAttribute()
 {
     QTemporaryDir dir;
@@ -805,10 +914,199 @@ void MarkdownTest::htmlImageHonoursWidthAttribute()
             const QTextImageFormat imageFormat = format.toImageFormat();
             QCOMPARE(int(imageFormat.width()), 60);
             QCOMPARE(int(imageFormat.height()), 12); // 200x40 scaled to width 60
+            // Pre-scaled smoothly by the builder, so the paint is 1:1.
+            const QVariant resource = document.resource(QTextDocument::ImageResource, QUrl(imageFormat.name()));
+            QVERIFY(!resource.isNull());
+            QCOMPARE(resource.value<QImage>().size(), QSize(60, 12));
             found = true;
         }
     }
     QVERIFY(found);
+}
+
+void MarkdownTest::htmlPercentWidthFillsTheContentColumn()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    // width="100%" asks for the whole text column, not the bag of digits "100".
+    const int column = RenderStyle().maxContentWidth;
+
+    QTextDocument document;
+    render(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"), dir.path());
+
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid() && !found; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QTextImageFormat imageFormat = format.toImageFormat();
+            QCOMPARE(int(imageFormat.width()), column);
+            QVERIFY(int(imageFormat.width()) != 100);
+            QCOMPARE(int(imageFormat.height()), qRound(40.0 * column / 200.0));
+            found = true;
+        }
+    }
+    QVERIFY(found);
+
+    // A percentage scales: half the column for width="50%".
+    QTextDocument half;
+    render(&half, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"50%\">\n"), dir.path());
+    for (QTextBlock block = half.firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (!it.fragment().charFormat().isImageFormat())
+                continue;
+            QCOMPARE(int(it.fragment().charFormat().toImageFormat().width()), column / 2);
+        }
+    }
+}
+
+void MarkdownTest::htmlPercentWidthOnRemoteImageIsSetBeforeLoad()
+{
+    // A remote banner must know its width before the download lands, so the
+    // block has the right height from the first layout.
+    RenderStyle style;
+    style.theme = ThemeDefinition::light();
+    style.remoteImagesEnabled = true;
+
+    QTextDocument document;
+    QVERIFY(MarkdownBuilder::build(&document, QStringLiteral("<img src=\"https://example.com/banner.svg\" alt=\"b\" width=\"100%\">\n"), style));
+
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid() && !found; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QTextImageFormat imageFormat = format.toImageFormat();
+            QCOMPARE(int(imageFormat.width()), style.maxContentWidth);
+            found = true;
+        }
+    }
+    QVERIFY(found);
+}
+
+void MarkdownTest::htmlWidthWithoutDigitsIsIgnored()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    // No usable number: the image keeps its natural size, no explicit width.
+    for (const QString &width : {QStringLiteral("abc"), QStringLiteral("%"), QStringLiteral("")}) {
+        QTextDocument document;
+        render(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"%1\">\n").arg(width), dir.path());
+        for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+            for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+                const QTextCharFormat format = it.fragment().charFormat();
+                if (!format.isImageFormat())
+                    continue;
+                QCOMPARE(int(format.toImageFormat().width()), 0);
+            }
+        }
+    }
+}
+
+void MarkdownTest::htmlPercentWidthFollowsTheLiveColumn()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    // A narrow pane (the editor is open, the window is small) supplies the live
+    // column; the percentage follows it so a hero does not overflow.
+    RenderStyle style;
+    style.theme = ThemeDefinition::light();
+    style.baseDir = dir.path();
+    style.maxContentWidth = 820;
+    style.contentWidth = 640;
+
+    QTextDocument document;
+    QVERIFY(MarkdownBuilder::build(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"), style));
+
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid() && !found; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (!it.fragment().charFormat().isImageFormat())
+                continue;
+            QCOMPARE(int(it.fragment().charFormat().toImageFormat().width()), 640);
+            found = true;
+        }
+    }
+    QVERIFY(found);
+
+    // An absolute width is unaffected by the column.
+    QTextDocument fixed;
+    style.contentWidth = 640;
+    QVERIFY(MarkdownBuilder::build(&fixed, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"60\">\n"), style));
+    for (QTextBlock block = fixed.firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (!it.fragment().charFormat().isImageFormat())
+                continue;
+            QCOMPARE(int(it.fragment().charFormat().toImageFormat().width()), 60);
+        }
+    }
+}
+
+void MarkdownTest::htmlBlockImageIsNotStretchedToTheLineHeight()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    QTextDocument document;
+    render(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"), dir.path());
+    const int column = RenderStyle().maxContentWidth;
+    document.setTextWidth(column);
+
+    QTextBlock block;
+    for (QTextBlock candidate = document.firstBlock(); candidate.isValid(); candidate = candidate.next()) {
+        for (QTextBlock::Iterator it = candidate.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().isImageFormat())
+                block = candidate;
+        }
+    }
+    QVERIFY(block.isValid());
+    // The prose line height (122%) must not stretch an image line: the block is
+    // exactly the image's height, not 22% taller (which left a gap below it).
+    const QRectF rect = document.documentLayout()->blockBoundingRect(block);
+    QCOMPARE(qRound(rect.height()), qRound(40.0 * column / 200.0));
+}
+
+void MarkdownTest::standaloneBreakDoesNotMergeIntoTheNextImage()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    QTextDocument document;
+    render(&document, QStringLiteral("<br>\n\n<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"), dir.path());
+
+    QTextBlock imageBlock;
+    for (QTextBlock candidate = document.firstBlock(); candidate.isValid(); candidate = candidate.next()) {
+        for (QTextBlock::Iterator it = candidate.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().isImageFormat())
+                imageBlock = candidate;
+        }
+    }
+    QVERIFY(imageBlock.isValid());
+    // The <br> stays in its own block; it must not drag a line separator or a
+    // stray space into the image block (which added an empty line above the
+    // image and pushed a full-width image past the column).
+    QVERIFY(!imageBlock.text().contains(QChar(0x2028)));
+    QVERIFY(imageBlock.text().startsWith(QChar(QChar::ObjectReplacementCharacter)));
 }
 
 void MarkdownTest::readmeRendersWithoutLiteralHtml()

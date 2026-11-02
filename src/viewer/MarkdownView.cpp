@@ -4,6 +4,8 @@
 #include "viewer/MarkdownView.h"
 
 #include "core/FontManager.h"
+#include "core/ImageFetcher.h"
+#include "core/ImageResolver.h"
 #include "viewer/CheckboxObjectHandler.h"
 #include "viewer/ChipObjectHandler.h"
 #include "viewer/CodeHighlighter.h"
@@ -18,6 +20,7 @@
 #include <QEvent>
 #include <QGuiApplication>
 #include <QHash>
+#include <QImage>
 #include <QKeyEvent>
 #include <QLocale>
 #include <QMouseEvent>
@@ -28,6 +31,7 @@
 #include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QTextFrame>
+#include <QTextImageFormat>
 #include <QTimer>
 #include <QWheelEvent>
 
@@ -44,6 +48,24 @@ constexpr int kDefaultRenderIntervalMs = 40;
 // consistent: the section just scrolled to is always the one highlighted.
 constexpr int kHeadingTopGap = 8;
 
+// The text layout paints a scaled image without interpolation, so a large remote
+// screenshot looks rough. Pre-scale it to the size the document draws it at and
+// tag the ratio, so it is painted 1:1. A width of zero keeps the natural size.
+QImage fitToWidth(const QImage &image, int logicalWidth, qreal ratio)
+{
+    if (image.isNull() || logicalWidth <= 0)
+        return image;
+    const qreal imageRatio = image.devicePixelRatio();
+    const qreal logical = image.width() / (imageRatio > 0 ? imageRatio : 1.0);
+    if (qAbs(logical - logicalWidth) < 1.0)
+        return image;
+    QImage scaled = image.scaledToWidth(qRound(logicalWidth * ratio), Qt::SmoothTransformation);
+    if (scaled.isNull())
+        return image;
+    scaled.setDevicePixelRatio(ratio);
+    return scaled;
+}
+
 /*
  * The document the preview renders into. Its one job is keeping decoded images
  * across rebuilds: QTextDocument throws its resource cache away whenever the
@@ -55,9 +77,10 @@ constexpr int kHeadingTopGap = 8;
 class PreviewDocument final : public QTextDocument
 {
 public:
-    PreviewDocument(QObject *parent, QHash<QUrl, QVariant> *sharedImageCache)
+    PreviewDocument(QObject *parent, QHash<QUrl, QVariant> *sharedImageCache, ImageFetcher *fetcher)
         : QTextDocument(parent)
         , m_imageCache(sharedImageCache)
+        , m_fetcher(fetcher)
     {
         setUndoRedoEnabled(false); // a rebuilt preview has no undo history
     }
@@ -72,6 +95,18 @@ protected:
         if (cached != m_imageCache->constEnd())
             return *cached;
 
+        if (m_fetcher && m_fetcher->isEnabled() && ImageResolver::isRemote(name.toString())) {
+            // The download is asynchronous: an empty resource now, the image
+            // when it arrives. The request itself is deferred to the next
+            // event-loop turn so a synchronous disk-cache hit cannot re-enter
+            // the document while it is being laid out.
+            ImageFetcher *fetcher = m_fetcher;
+            QTimer::singleShot(0, this, [fetcher, name] {
+                fetcher->fetch(name);
+            });
+            return {};
+        }
+
         const QVariant loaded = QTextDocument::loadResource(type, name);
         if (!loaded.isNull())
             m_imageCache->insert(name, loaded);
@@ -80,12 +115,14 @@ protected:
 
 private:
     QHash<QUrl, QVariant> *m_imageCache = nullptr;
+    ImageFetcher *m_fetcher = nullptr;
 };
 } // namespace
 
 MarkdownView::MarkdownView(QWidget *parent)
     : QTextBrowser(parent)
     , m_documentOwner(new QObject(this))
+    , m_imageFetcher(new ImageFetcher(this))
     , m_gifHandler(new GifObjectHandler(nullptr, this))
     , m_checkboxHandler(new CheckboxObjectHandler(this))
     , m_chipHandler(new ChipObjectHandler(this))
@@ -99,15 +136,15 @@ MarkdownView::MarkdownView(QWidget *parent)
 
     // Own documents from the start: the stock document a QTextEdit creates is
     // its child, and a child document is deleted the moment another replaces
-    // it. The ping-pong pair below is owned by m_documentOwner instead.
-    // Own documents from the start: the stock document a QTextEdit creates is
-    // its child, and a child document is deleted the moment another replaces
     // it. The render documents are owned by m_documentOwner instead.
-    auto *first = new PreviewDocument(m_documentOwner, &m_imageCache);
-    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache);
+    auto *first = new PreviewDocument(m_documentOwner, &m_imageCache, m_imageFetcher);
+    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache, m_imageFetcher);
     setDocument(first);
     registerObjectHandlers(document());
     m_gifHandler->setDocument(first);
+
+    connect(m_imageFetcher, &ImageFetcher::ready, this, &MarkdownView::onRemoteImageReady);
+    connect(m_imageFetcher, &ImageFetcher::failed, this, &MarkdownView::onRemoteImageFailed);
 
     m_renderTimer = new QTimer(this);
     m_renderTimer->setSingleShot(true);
@@ -149,6 +186,10 @@ void MarkdownView::setRenderStyle(const RenderStyle &style)
     m_mathHandler->setEmSize(bodyFont.pixelSize() > 0 ? qreal(bodyFont.pixelSize()) : bodyFont.pointSizeF() * logicalDpiY() / 72.0);
     m_mathHandler->setColor(style.theme.palette.color(QPalette::Text));
     m_mathHandler->setDevicePixelRatio(devicePixelRatioF());
+    // Remote images (their SVG rasters especially) belong to the current
+    // screen ratio; a stale ratio would soften every badge.
+    m_lastDevicePixelRatio = devicePixelRatioF();
+    m_imageFetcher->setDevicePixelRatio(m_lastDevicePixelRatio);
     m_codeHighlighter->setThemeDefinition(style.theme);
     setPalette(style.theme.palette);
     updateContentMargins();
@@ -162,7 +203,24 @@ void MarkdownView::resizeEvent(QResizeEvent *event)
     // next layout pass, so defer it to the event loop.
     QTimer::singleShot(0, this, [this] {
         updateContentMargins();
+        // A narrower pane (an open editor, a smaller window) must re-render so
+        // percentage image widths shrink instead of running off the edge.
+        const int column = contentColumnWidth();
+        if (column != m_lastColumnWidth) {
+            m_lastColumnWidth = column;
+            scheduleRerender();
+        }
     });
+
+    // Moving the window to a screen with a different scale changes the ratio
+    // remote images were rasterised at; drop the cache and fetch again.
+    const qreal ratio = devicePixelRatioF();
+    if (!qFuzzyCompare(ratio, m_lastDevicePixelRatio)) {
+        m_lastDevicePixelRatio = ratio;
+        m_imageFetcher->setDevicePixelRatio(ratio);
+        m_imageCache.clear();
+        renderNow();
+    }
 }
 
 void MarkdownView::scrollContentsBy(int dx, int dy)
@@ -223,6 +281,15 @@ void MarkdownView::updateContentMargins()
     setViewportMargins(margin, 0, margin, 0);
 }
 
+int MarkdownView::contentColumnWidth() const
+{
+    int available = width();
+    if (const QScrollBar *bar = verticalScrollBar(); bar && bar->isVisible())
+        available -= bar->width();
+    available -= 2 * frameWidth();
+    return (std::min)((std::max)(available, 0), m_style.maxContentWidth);
+}
+
 const RenderStyle &MarkdownView::renderStyle() const
 {
     return m_style;
@@ -234,6 +301,111 @@ void MarkdownView::setBaseDir(const QString &directory)
         return;
     m_style.baseDir = directory;
     renderNow();
+}
+
+void MarkdownView::setRemoteImagesEnabled(bool enabled)
+{
+    if (m_style.remoteImagesEnabled == enabled)
+        return;
+    m_style.remoteImagesEnabled = enabled;
+    m_imageFetcher->setEnabled(enabled);
+    if (!enabled)
+        m_imageCache.clear(); // don't let a stale download outlive the toggle
+    renderNow();
+}
+
+bool MarkdownView::remoteImagesEnabled() const
+{
+    return m_style.remoteImagesEnabled;
+}
+
+ImageFetcher *MarkdownView::imageFetcher() const
+{
+    return m_imageFetcher;
+}
+
+void MarkdownView::onRemoteImageReady(const QUrl &url, const QImage &image)
+{
+    if (image.isNull())
+        return;
+    m_imageCache.insert(url, image); // the natural image, for later widths
+
+    // Show it in place: the resource is stored on the document and the blocks
+    // that hold this image are re-laid out, so the row grows to the image's
+    // size without touching the rest of the document. Pre-scale to the drawn
+    // width so the paint is 1:1 and stays sharp.
+    QTextDocument *doc = document();
+    if (!doc)
+        return;
+    const qreal ratio = devicePixelRatioF();
+    bool placed = false;
+    for (QTextBlock block = doc->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            if (QUrl(format.toImageFormat().name()) != url)
+                continue;
+            doc->addResource(QTextDocument::ImageResource, url, fitToWidth(image, int(format.toImageFormat().width()), ratio));
+            doc->markContentsDirty(it.fragment().position(), it.fragment().length());
+            placed = true;
+        }
+    }
+    if (!placed)
+        doc->addResource(QTextDocument::ImageResource, url, image);
+}
+
+// Give every already-fetched remote image the size this render draws it at, so
+// a rebuild (a resize, a theme switch) keeps it sharp instead of re-fetching.
+void MarkdownView::fitRemoteImages(QTextDocument *doc)
+{
+    if (!doc)
+        return;
+    const qreal ratio = devicePixelRatioF();
+    for (QTextBlock block = doc->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QUrl url(format.toImageFormat().name());
+            const auto cached = m_imageCache.constFind(url);
+            if (cached == m_imageCache.constEnd())
+                continue;
+            const QImage image = cached->value<QImage>();
+            if (image.isNull())
+                continue;
+            doc->addResource(QTextDocument::ImageResource, url, fitToWidth(image, int(format.toImageFormat().width()), ratio));
+        }
+    }
+}
+
+void MarkdownView::onRemoteImageFailed(const QUrl &url)
+{
+    // The download will not produce an image: fall back to the alt-text chip
+    // the disabled path would have shown, drawn once into the cache under the
+    // image's own URL so the pending row settles instead of staying empty.
+    QTextDocument *doc = document();
+    if (!doc)
+        return;
+    for (QTextBlock block = doc->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QTextImageFormat imageFormat = format.toImageFormat();
+            if (QUrl(imageFormat.name()) != url)
+                continue;
+            const QString alt = imageFormat.property(MarkdownBuilder::imageAltKey).toString();
+            if (alt.isEmpty())
+                continue;
+            const QImage placeholder = m_chipHandler->renderChip(alt, imageFormat.fontPointSize() > 0 ? imageFormat.fontPointSize() : 11.0);
+            if (placeholder.isNull())
+                continue;
+            m_imageCache.insert(url, placeholder);
+            doc->addResource(QTextDocument::ImageResource, url, placeholder);
+            doc->markContentsDirty(it.fragment().position(), it.fragment().length());
+        }
+    }
 }
 
 void MarkdownView::setMarkdown(const QString &markdown)
@@ -347,7 +519,12 @@ void MarkdownView::rebuild()
     // open-file render went. QTextEdit installs the page size at the swap, and
     // the remaining layout runs through its own bounded steps.
     m_scratchDocument->deleteLater();
-    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache);
+    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache, m_imageFetcher);
+
+    // Resolve percentage widths against the column the pane actually has right
+    // now, so a width="100%" hero fits it instead of overflowing.
+    m_style.contentWidth = contentColumnWidth();
+    m_lastColumnWidth = m_style.contentWidth;
 
     const bool built = MarkdownBuilder::build(m_scratchDocument, m_source, m_style);
     if (!built) {
@@ -357,6 +534,7 @@ void MarkdownView::rebuild()
         m_lastRenderMs = int(timer.elapsed());
         return;
     }
+    fitRemoteImages(m_scratchDocument);
     m_codeHighlighter->highlight(m_scratchDocument);
 
     // Register the object handlers now -- after build and highlight, but

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <QColor>
+#include <QImage>
 #include <QObject>
 #include <QTextObjectInterface>
 
@@ -24,10 +25,17 @@ public:
 
     void setColors(const QColor &background, const QColor &border, const QColor &text);
 
+    // Renders one chip into an image, for the placeholder shown when a remote
+    // image cannot be downloaded. Uses the same colours and metrics as the
+    // on-screen chip so the fallback matches.
+    QImage renderChip(const QString &text, qreal pointSize) const;
+
     QSizeF intrinsicSize(QTextDocument *document, int posInDocument, const QTextFormat &format) override;
     void drawObject(QPainter *painter, const QRectF &rect, QTextDocument *document, int posInDocument, const QTextFormat &format) override;
 
 private:
+    void paintChip(QPainter *painter, const QRectF &rect, const QString &text, const QFont &font) const;
+
     QColor m_background;
     QColor m_border;
     QColor m_text;

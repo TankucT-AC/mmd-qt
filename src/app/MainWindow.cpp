@@ -280,6 +280,15 @@ void MainWindow::buildMenus()
 
     restorePaneSettings();
 
+    m_toggleRemoteImages = viewMenu->addAction(tr("Load &Remote Images"));
+    m_toggleRemoteImages->setObjectName(QStringLiteral("toggleRemoteImages"));
+    m_toggleRemoteImages->setCheckable(true);
+    connect(m_toggleRemoteImages, &QAction::toggled, this, [this](bool checked) {
+        QSettings().setValue(QStringLiteral("view/remoteImages"), checked);
+        m_viewer->setRemoteImagesEnabled(checked);
+    });
+    restoreRemoteImageSettings();
+
     QMenu *themeMenu = viewMenu->addMenu(tr("&Theme"));
     auto *group = new QActionGroup(this);
     struct ThemeChoice {
@@ -605,6 +614,17 @@ void MainWindow::persistPaneSettings()
     QSettings settings;
     settings.setValue(QStringLiteral("view/editorVisible"), m_toggleEditor->isChecked());
     settings.setValue(QStringLiteral("view/viewerVisible"), m_toggleViewer->isChecked());
+}
+
+// Remote images are on by default: a document full of shields.io badges and a
+// GitHub-hosted banner looks right out of the box. The setting is here for a
+// reader who would rather not touch the network at all.
+void MainWindow::restoreRemoteImageSettings()
+{
+    QSettings settings;
+    const bool enabled = settings.value(QStringLiteral("view/remoteImages"), true).toBool();
+    m_toggleRemoteImages->setChecked(enabled); // fires the handler, applying it
+    m_viewer->setRemoteImagesEnabled(enabled);
 }
 
 void MainWindow::restoreFontSettings()

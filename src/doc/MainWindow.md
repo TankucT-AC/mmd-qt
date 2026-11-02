@@ -33,6 +33,12 @@ The checkable actions that show/hide each pane (`F9` / `F10`). The shipped
 default is a viewer-only window; the last layout is kept in `QSettings`
 (`view/editorVisible`, `view/viewerVisible`) and restored on the next start.
 
+**View → Load Remote Images** controls whether the preview downloads `http(s)`
+images. It is on by default; the choice is stored under `view/remoteImages`
+and applied through `MarkdownView::setRemoteImagesEnabled`. Turning it off
+leaves the viewer entirely off the network and renders such references as their
+alt-text chip.
+
 #### void applyFontChoice(const QString &bodyFamily, const QString &codeFamily)
 
 Typesets the preview and the editor with the chosen families and stores them

@@ -12,7 +12,9 @@ the public surface, ownership, threading and how the class fits into the app.
 | [ThemeManager.md](ThemeManager.md) | Resolves Light/Dark/System/Custom into the active theme and emits on change. |
 | [FontManager.md](FontManager.md) | Bundled/system/custom fonts and the modular heading scale. |
 | [FontsDialog.md](FontsDialog.md) | The View → Fonts… dialog: text and monospace faces from the installed families. |
-| [ImageResolver.md](ImageResolver.md) | Resolves markdown image references to local paths and detects animation. |
+| [ImageResolver.md](ImageResolver.md) | Resolves markdown image references to local paths, classifies remote URLs and detects animation. |
+| [HtmlFragment.md](HtmlFragment.md) | Tolerant HTML tokenizer with source offsets, used to render the HTML in a document. |
+| [ImageFetcher.md](ImageFetcher.md) | Loads remote `http(s)` images asynchronously, with a disk cache and network guard rails. |
 | [FileDocument.md](FileDocument.md) | Loads, saves and watches the document file on disk. |
 | [SystemThemeProvider.md](SystemThemeProvider.md) | Reads the desktop's own colour schemes (KDE `*.colors`). |
 

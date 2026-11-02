@@ -31,6 +31,8 @@ add_library(mmd_core STATIC
     core/HtmlFragment.cpp
     core/ImageResolver.h
     core/ImageResolver.cpp
+    core/ImageFetcher.h
+    core/ImageFetcher.cpp
     core/DocumentLimits.h
     core/DocumentLimits.cpp
     core/FindState.h
@@ -68,6 +70,7 @@ target_link_libraries(mmd_core
     PUBLIC
         Qt6::Widgets
         Qt6::Svg
+        Qt6::Network
         KF6::SyntaxHighlighting
         microtex
         md4c

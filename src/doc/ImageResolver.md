@@ -4,9 +4,10 @@
 
 `ImageResolver` turns the image reference in a markdown span (`![alt](path)`)
 into a concrete local file path, resolved relative to the directory of the
-markdown file — the behaviour readers expect. Remote URLs are out of scope: they
-resolve to an empty path and the renderer shows a placeholder instead. It also
-reports whether a path is an animated format the viewer can play.
+markdown file — the behaviour readers expect. Remote `http(s)` references
+resolve to an empty path here; the viewer fetches those over the network
+instead. It also reports whether a path is an animated format the viewer can
+play, and whether a reference is a remote URL at all.
 
 ## 2. Project Structure and Dependencies
 
@@ -25,6 +26,12 @@ Returns an absolute local path for `source`. Relative references are joined onto
 `baseDir` (or resolved against the current directory when `baseDir` is empty);
 `file://` URIs are converted to local paths. Returns an empty string for remote
 or unsupported schemes, and for an empty source.
+
+#### static bool ImageResolver::isRemote(const QString &source)
+
+True when `source` is an `http` or `https` URL. `MarkdownBuilder` uses it to
+decide between a local file (loaded from disk) and a remote reference (handed to
+`ImageFetcher`).
 
 #### static bool ImageResolver::isAnimated(const QString &path)
 

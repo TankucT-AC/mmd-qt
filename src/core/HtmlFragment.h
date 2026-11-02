@@ -31,6 +31,11 @@ struct HtmlToken {
     QVector<std::pair<QString, QString>> attributes; // lowercased attribute names
     QString text; // Text or Comment content
     bool selfClosing = false; // StartTag written as <name/> (HTML void elements)
+    // Where the token sits in the source string (one past the last character
+    // for `end`). The block renderer slices raw inner HTML out of a container
+    // with these, e.g. the markdown inside a <td>.
+    int start = -1;
+    int end = -1;
 };
 
 // Splits a raw HTML fragment into tokens. Never throws; never crashes.

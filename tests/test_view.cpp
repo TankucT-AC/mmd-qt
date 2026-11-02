@@ -3,13 +3,16 @@
 
 #include <QtTest>
 
+#include "TestHttpServer.h"
 #include "core/DocumentLimits.h"
+#include "core/ImageFetcher.h"
 #include "core/MarkdownBuilder.h"
 #include "core/Theme.h"
 #include "viewer/GifObjectHandler.h"
 #include "viewer/MarkdownView.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QBuffer>
 #include <QClipboard>
 #include <QColor>
 #include <QFile>
@@ -20,6 +23,7 @@
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextBrowser>
+#include <QTextImageFormat>
 #include <QTextLayout>
 
 class ViewTest : public QObject
@@ -50,6 +54,12 @@ private slots:
     void gifAnimationsSurviveRebuilds();
     void centeredBadgeRowStaysCenteredAfterSwap();
     void reopeningTheDocumentRendersTheBadgeRowCorrectlyAgain();
+    void remoteImagesDisabledRendersTheAltChip();
+    void remoteImagesEnabledInsertTheImageObject();
+    void failedRemoteImageFallsBackToTheAltChip();
+    void remoteImageAppearsAfterDownload();
+    void htmlPercentImageFitsThePaneAndReshrinks();
+    void remoteImageIsPreScaledToTheDrawnWidth();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -206,6 +216,44 @@ void ViewTest::contentIsCappedByMaxWidth()
     // The rendered column must not stretch across the whole window; give the
     // layout a chance to apply the margins.
     QTRY_VERIFY_WITH_TIMEOUT(view.document()->textWidth() <= view.renderStyle().maxContentWidth + 4, 3000);
+}
+
+void ViewTest::htmlPercentImageFitsThePaneAndReshrinks()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QFile png(dir.filePath(QStringLiteral("pic.png")));
+    QVERIFY(png.open(QIODevice::WriteOnly));
+    png.write(QByteArray::fromBase64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="));
+    png.close();
+
+    MarkdownView view;
+    view.resize(900, 600);
+    view.show();
+    view.setRenderInterval(0);
+    view.setBaseDir(dir.path());
+    view.setMarkdown(QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"));
+
+    const auto imageWidth = [&view] {
+        for (QTextBlock block = view.document()->firstBlock(); block.isValid(); block = block.next())
+            for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it)
+                if (it.fragment().charFormat().isImageFormat())
+                    return int(it.fragment().charFormat().toImageFormat().width());
+        return 0;
+    };
+
+    // width="100%" must resolve to the pane's column, not the column *cap*.
+    QTRY_VERIFY(view.document()->textWidth() > 0);
+    QTRY_VERIFY(imageWidth() > 0);
+    const int wide = imageWidth();
+    QVERIFY2(wide <= int(view.document()->textWidth()) + 4,
+             qPrintable(QStringLiteral("image %1 wider than column %2").arg(wide).arg(view.document()->textWidth())));
+    QVERIFY(wide > 400); // a full-width hero, not the old 100 px
+
+    // A narrower pane (like an open editor) must re-render so the image fits.
+    view.resize(500, 600);
+    QTRY_VERIFY_WITH_TIMEOUT(imageWidth() > 0 && imageWidth() < wide, 3000);
+    QVERIFY(imageWidth() <= int(view.document()->textWidth()) + 4);
 }
 
 void ViewTest::codeFramesAreFoundAfterRender()
@@ -532,6 +580,137 @@ void ViewTest::reopeningTheDocumentRendersTheBadgeRowCorrectlyAgain()
     view.setMarkdown(QStringLiteral("# other\n\nplain text\n"));
     view.setMarkdown(badgeDocument());
     checkBadgeRowIsCentred(view);
+}
+
+static QTextImageFormat imageObjectIn(const QTextDocument *document)
+{
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (format.isImageFormat())
+                return format.toImageFormat();
+        }
+    }
+    return QTextImageFormat();
+}
+
+static bool hasChipObject(const QTextDocument *document)
+{
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().objectType() == MarkdownBuilder::chipObjectType)
+                return true;
+        }
+    }
+    return false;
+}
+
+void ViewTest::remoteImagesDisabledRendersTheAltChip()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+    // Remote loading is off by default; the alt text carries the meaning.
+    QVERIFY(!view.remoteImagesEnabled());
+
+    view.setMarkdown(QStringLiteral("![badge](https://example.com/badge.svg)\n"));
+    QVERIFY(hasChipObject(view.document()));
+    QVERIFY(imageObjectIn(view.document()).name().isEmpty());
+}
+
+void ViewTest::remoteImagesEnabledInsertTheImageObject()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+    view.setRemoteImagesEnabled(true);
+
+    // A loopback URL: the fetcher refuses it immediately (private network),
+    // so this exercises the object path without any real network traffic.
+    const QString url = QStringLiteral("http://127.0.0.1:9/badge.svg");
+    view.setMarkdown(QStringLiteral("![badge](%1)\n").arg(url));
+    view.renderNow();
+
+    const QTextImageFormat format = imageObjectIn(view.document());
+    QCOMPARE(format.name(), url);
+    QCOMPARE(format.property(MarkdownBuilder::imageAltKey).toString(), QStringLiteral("badge"));
+    QVERIFY(!hasChipObject(view.document()));
+}
+
+void ViewTest::failedRemoteImageFallsBackToTheAltChip()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+    view.setRemoteImagesEnabled(true);
+
+    const QString url = QStringLiteral("http://127.0.0.1:9/badge.svg");
+    view.setMarkdown(QStringLiteral("![badge](%1)\n").arg(url));
+    view.renderNow();
+
+    // The refusal is immediate; the block then settles on the alt-text chip
+    // drawn into the resource slot, instead of staying an empty gap.
+    QTRY_VERIFY(!view.document()->resource(QTextDocument::ImageResource, QUrl(url)).isNull());
+}
+
+void ViewTest::remoteImageAppearsAfterDownload()
+{
+    TestHttpServer server;
+    QVERIFY(server.isListening());
+    server.setRoute(QStringLiteral("/pic.png"),
+                    {200,
+                     {{"Content-Type", "image/png"}},
+                     QByteArray::fromBase64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+                     true});
+
+    QTemporaryDir cache;
+    MarkdownView view;
+    view.resize(400, 300);
+    view.show();
+    view.setRenderInterval(0);
+    view.setRemoteImagesEnabled(true);
+    view.imageFetcher()->setCacheDirectory(cache.path());
+    view.imageFetcher()->setPrivateNetworkAllowed(true);
+
+    const QUrl url = server.url(QStringLiteral("/pic.png"));
+    view.setMarkdown(QStringLiteral("![pic](%1)\n").arg(url.toString()));
+    view.renderNow();
+
+    QTRY_VERIFY(!view.document()->resource(QTextDocument::ImageResource, url).isNull());
+    const QImage image = view.document()->resource(QTextDocument::ImageResource, url).value<QImage>();
+    QCOMPARE(image.width(), 1);
+    QCOMPARE(image.height(), 1);
+}
+
+void ViewTest::remoteImageIsPreScaledToTheDrawnWidth()
+{
+    TestHttpServer server;
+    QVERIFY(server.isListening());
+
+    QImage source(40, 20, QImage::Format_ARGB32);
+    source.fill(Qt::red);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    QVERIFY(source.save(&buffer, "PNG"));
+    buffer.close();
+    server.setRoute(QStringLiteral("/pic.png"), {200, {{"Content-Type", "image/png"}}, bytes, true});
+
+    QTemporaryDir cache;
+    MarkdownView view;
+    view.resize(400, 300);
+    view.show();
+    view.setRenderInterval(0);
+    view.setRemoteImagesEnabled(true);
+    view.imageFetcher()->setCacheDirectory(cache.path());
+    view.imageFetcher()->setPrivateNetworkAllowed(true);
+
+    const QUrl url = server.url(QStringLiteral("/pic.png"));
+    view.setMarkdown(QStringLiteral("<img src=\"%1\" alt=\"p\" width=\"20\">\n").arg(url.toString()));
+    view.renderNow();
+
+    QTRY_VERIFY(!view.document()->resource(QTextDocument::ImageResource, url).isNull());
+    const QImage image = view.document()->resource(QTextDocument::ImageResource, url).value<QImage>();
+    // Pre-scaled to the drawn width (20 logical), not left at the 40px source,
+    // so the text layout paints it 1:1 instead of resampling it.
+    QCOMPARE(image.deviceIndependentSize().toSize(), QSize(20, 10));
 }
 
 QTEST_MAIN(ViewTest)
