@@ -33,8 +33,11 @@ the reader.
 
 Derives from `QTextBrowser` (a read-only `QTextEdit` with hyperlink navigation).
 Hyperlinks open externally. The `QTextObjectInterface` handlers (animated image,
-checkbox, chip, formula) are (re-)registered on the layout of whatever document
-is showing after every rebuild.
+checkbox, chip, formula) are registered on the fresh document's layout *before*
+the swap: `QTextEdit::setDocument` measures the document synchronously for the
+scrollbar ranges, and an object type without a handler would measure as zero
+width — which is how a centred badge row could end up drawn over the column's
+right edge (visible in README.md, fixed by a resize, broken again on reopen).
 
 ## 7. Signals
 

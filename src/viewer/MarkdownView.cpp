@@ -106,7 +106,7 @@ MarkdownView::MarkdownView(QWidget *parent)
     auto *first = new PreviewDocument(m_documentOwner, &m_imageCache);
     m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache);
     setDocument(first);
-    registerObjectHandlers();
+    registerObjectHandlers(document());
     m_gifHandler->setDocument(first);
 
     m_renderTimer = new QTimer(this);
@@ -359,6 +359,16 @@ void MarkdownView::rebuild()
     }
     m_codeHighlighter->highlight(m_scratchDocument);
 
+    // Register the object handlers now -- after build and highlight, but
+    // before the swap. Two windows must not meet: a layout that already knows
+    // the object types reacts to every insertion (building with them attached
+    // relayouts under each block and typesets formulas mid-build), and
+    // QTextEdit's setDocument machinery measures the document synchronously
+    // for the scrollbar ranges -- an object type without a handler there
+    // measures as zero width, which is how a centred badge row ended up drawn
+    // over the column's right edge until the next full relayout.
+    registerObjectHandlers(m_scratchDocument);
+
     // Swap it in. The outgoing document is reparented away from the edit (a
     // document parented to a QTextEdit is deleted when another replaces it)
     // and parked in the scratch slot, which the next rebuild replaces with a
@@ -368,7 +378,6 @@ void MarkdownView::rebuild()
     m_copiedFrame = nullptr;
     outgoing->setParent(m_documentOwner);
     setDocument(m_scratchDocument);
-    registerObjectHandlers();
     m_scratchDocument = outgoing;
 
     m_gifHandler->setDocument(document());
@@ -408,9 +417,9 @@ void MarkdownView::rebuild()
     emit rendered();
 }
 
-void MarkdownView::registerObjectHandlers()
+void MarkdownView::registerObjectHandlers(QTextDocument *document)
 {
-    QAbstractTextDocumentLayout *layout = document()->documentLayout();
+    QAbstractTextDocumentLayout *layout = document->documentLayout();
     layout->registerHandler(MarkdownBuilder::gifObjectType, m_gifHandler);
     layout->registerHandler(MarkdownBuilder::checkboxObjectType, m_checkboxHandler);
     layout->registerHandler(MarkdownBuilder::chipObjectType, m_chipHandler);

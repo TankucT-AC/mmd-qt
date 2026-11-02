@@ -35,9 +35,11 @@ class MathObjectHandler;
  * makes QTextDocumentLayout relayout between cursor insertions, and a document
  * that has already been shown keeps that eager state even after it is swapped
  * out -- a virgin build document plus an atomic swap keeps the whole rebuild
- * off the layout machinery. The object handlers re-register on the layout of
- * whatever document is showing; decoded images live in a cache owned by the
- * view, so no render re-decodes what an earlier one already showed.
+ * off the layout machinery. The object handlers register on the fresh
+ * document's layout before the swap: QTextEdit measures the document inside
+ * setDocument, and an object type without a handler would measure as zero
+ * width. Decoded images live in a cache owned by the view, so no render
+ * re-decodes what an earlier one already showed.
  */
 class MarkdownView : public QTextBrowser
 {
@@ -154,7 +156,7 @@ private:
     void rebuild();
     void buildPlaceholder();
     void applyFindSelections();
-    void registerObjectHandlers();
+    void registerObjectHandlers(QTextDocument *document);
     void updateVisibleHeading();
     int effectiveRenderInterval() const;
     void updateContentMargins();

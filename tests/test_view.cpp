@@ -20,6 +20,7 @@
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextBrowser>
+#include <QTextLayout>
 
 class ViewTest : public QObject
 {
@@ -47,6 +48,8 @@ private slots:
     void documentPointerChangesAcrossRebuilds();
     void handlersStayRegisteredAcrossManyRebuilds();
     void gifAnimationsSurviveRebuilds();
+    void centeredBadgeRowStaysCenteredAfterSwap();
+    void reopeningTheDocumentRendersTheBadgeRowCorrectlyAgain();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -450,6 +453,85 @@ void ViewTest::gifAnimationsSurviveRebuilds()
 
     view.setMarkdown(QStringLiteral("# gif\n\n![anim](anim.gif)\n"));
     QTRY_VERIFY_WITH_TIMEOUT(handler->hasRunningAnimations(), 3000);
+}
+
+// README.md renders its shields.io badges as a centred row of chips. That row
+// is the only content in the app that makes a swap-time layout fault visible:
+// QTextEdit's own setDocument machinery measures the fresh document for the
+// scrollbar ranges before the rebuild gets a chance to register the object
+// handlers, an unhandled object measures as zero width, and the centred line
+// then sits at the middle of the column with the chips drawn over its right
+// edge. Resizing repaints correctly (a full relayout with handlers in place),
+// reopening breaks it again -- exactly the report that led here.
+static QString badgeDocument()
+{
+    return QStringLiteral(
+        "<div align=\"center\">\n"
+        "\n"
+        "[![alpha](https://img.shields.io/badge/alpha.svg)](https://example.com/a)\n"
+        "[![beta](https://img.shields.io/badge/beta.svg)](https://example.com/b)\n"
+        "[![gamma](https://img.shields.io/badge/gamma.svg)](https://example.com/g)\n"
+        "\n"
+        "</div>\n");
+}
+
+static QTextBlock chipBlockIn(const QTextDocument *document)
+{
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().objectType() == MarkdownBuilder::chipObjectType)
+                return block;
+        }
+    }
+    return QTextBlock();
+}
+
+static void checkBadgeRowIsCentred(const MarkdownView &view)
+{
+    const QTextBlock block = chipBlockIn(view.document());
+    QVERIFY2(block.isValid(), "the badge paragraph is missing from the document");
+    QVERIFY2(block.layout()->lineCount() > 0, "the badge row was never laid out");
+
+    const QTextLine line = block.layout()->lineAt(0);
+    QVERIFY2(line.naturalTextWidth() > 100,
+             "the chips row was measured as near-zero width: objects went through "
+             "the layout without their handler registered");
+
+    // The row must sit centred in the column, not run off its right edge.
+    const qreal left = view.cursorRect(QTextCursor(block)).left();
+    const qreal column = view.viewport()->width();
+    const qreal expected = (column - line.naturalTextWidth()) / 2.0;
+    QVERIFY2(
+        qAbs(left - expected) < 12.0,
+        qPrintable(QStringLiteral("row left %1, expected ~%2 (column %3, row width %4)").arg(left).arg(expected).arg(column).arg(line.naturalTextWidth())));
+    QVERIFY2(left + line.naturalTextWidth() <= column + 2.0, "the chips row runs past the right edge of the column");
+}
+
+void ViewTest::centeredBadgeRowStaysCenteredAfterSwap()
+{
+    MarkdownView view;
+    view.resize(700, 400);
+    view.show();
+    view.setRenderInterval(0);
+    view.setMarkdown(badgeDocument());
+    checkBadgeRowIsCentred(view);
+}
+
+void ViewTest::reopeningTheDocumentRendersTheBadgeRowCorrectlyAgain()
+{
+    MarkdownView view;
+    view.resize(700, 400);
+    view.show();
+    view.setRenderInterval(0);
+
+    // Open something else, then reopen the badges: every render swaps in a
+    // fresh document, so the fault must not depend on which render is first.
+    view.setMarkdown(QStringLiteral("# other\n\nplain text\n"));
+    view.setMarkdown(badgeDocument());
+    checkBadgeRowIsCentred(view);
+    view.setMarkdown(QStringLiteral("# other\n\nplain text\n"));
+    view.setMarkdown(badgeDocument());
+    checkBadgeRowIsCentred(view);
 }
 
 QTEST_MAIN(ViewTest)
