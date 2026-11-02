@@ -89,6 +89,31 @@ in the worker and hand it back.
 - `MarkdownView` calls `build()` and then `CodeHighlighter::highlight()` on the result.
 - `MarkdownView` registers a `GifObjectHandler` for `gifObjectType`, which the builder emits for animated images.
 - `MarkdownView::sourceLineAt` reads `sourceLineKey` back off a block, which is how a click in the preview finds the line to put the editor's caret on.
+- `core/HtmlFragment` tokenizes the raw HTML md4c hands over as `MD_BLOCK_HTML` / `MD_SPAN_HTML`.
+
+## 15. HTML Rendering
+
+md4c passes HTML through as raw text, the CommonMark way. `MarkdownBuilder`
+renders it with a tolerant walk (`renderHtmlFragment`) rather than a second
+markdown pass:
+
+- Block containers are recognized by name. A container whose closing tag is in
+  the same HTML block is rendered by running its inner markup back through the
+  builder in a scratch document and pasting the result in with the container's
+  alignment — which is why a `<td>` holding markdown comes out the way GitHub
+  shows it (bold, lists, images and all).
+- A block container that spans several markdown blocks — `<div align="center">`
+  or `<p align="right">` with a blank line inside, where CommonMark ends the
+  HTML block — is remembered on a stack and its alignment is applied to every
+  block until the closing tag arrives.
+- Block-level HTML tables are lifted out of the source before parsing
+  (`extractHtmlTables`): with blank lines between their parts they would
+  otherwise reach the builder as a scatter of fragments. Each table is replaced
+  by a one-line marker that the block renderer expands into a real `QTextTable`,
+  keeping the source line count so click-to-source stays correct.
+- Inside a container, markdown is re-parsed by a nested `build()` call; SVG
+  resources the inner build rasterised are copied over (`copyHtmlResources`)
+  because a document fragment carries formats, not resources.
 
 ## 16. Usage Example
 

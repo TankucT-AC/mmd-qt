@@ -42,6 +42,10 @@ private slots:
     void headingSlugsMatchGithubStyle();
     void htmlImageHonoursWidthAttribute();
     void htmlImageInsideCenteredDivIsCentered();
+    void htmlParagraphAlignCentersMarkdownBlocks();
+    void htmlTableCellsRenderTheirMarkdown();
+    void htmlTableWithBlankLinesBecomesATable();
+    void htmlBadgeRowStaysOnOneLine();
     void readmeRendersWithoutLiteralHtml();
     void boldEmphasisInParagraph();
     void inlineCodeSpan();
@@ -783,6 +787,104 @@ void MarkdownTest::htmlImageInsideCenteredDivIsCentered()
         }
     }
     QVERIFY(found);
+}
+
+void MarkdownTest::htmlParagraphAlignCentersMarkdownBlocks()
+{
+    // <p align="center"> wraps markdown: CommonMark breaks the HTML block at
+    // the blank line, so the heading arrives as an ordinary markdown block and
+    // the alignment has to reach it.
+    QTextDocument document;
+    render(&document, QStringLiteral("<p align=\"center\">\n\n# Title\n\n</p>\n"));
+
+    QTextBlock block;
+    for (QTextBlock candidate = document.firstBlock(); candidate.isValid(); candidate = candidate.next()) {
+        if (candidate.text() == QStringLiteral("Title"))
+            block = candidate;
+    }
+    QVERIFY(block.isValid());
+    QCOMPARE(block.blockFormat().alignment(), Qt::AlignHCenter);
+}
+
+void MarkdownTest::htmlTableCellsRenderTheirMarkdown()
+{
+    QTextDocument document;
+    render(&document, QStringLiteral("<table><tr><td>**bold**</td><td>plain</td></tr></table>\n"));
+
+    QTextTable *table = nullptr;
+    for (QTextFrame::iterator it = document.rootFrame()->begin(); !it.atEnd(); ++it)
+        if (auto *candidate = qobject_cast<QTextTable *>(it.currentFrame()))
+            table = candidate;
+    QVERIFY(table != nullptr);
+    QCOMPARE(table->rows(), 1);
+    QCOMPARE(table->columns(), 2);
+
+    // The cell text keeps the markdown: the word comes through bold.
+    const QTextBlock cellBlock = table->cellAt(0, 0).firstCursorPosition().block();
+    QCOMPARE(cellBlock.text(), QStringLiteral("bold"));
+    QVERIFY(formatAt(cellBlock, 0).fontWeight() >= QFont::Bold);
+    QCOMPARE(table->cellAt(0, 1).firstCursorPosition().block().text(), QStringLiteral("plain"));
+}
+
+void MarkdownTest::htmlTableWithBlankLinesBecomesATable()
+{
+    // The NEXUS.md shape: a table whose cells contain markdown and blank lines,
+    // which CommonMark would otherwise scatter across several HTML blocks.
+    QTextDocument document;
+    render(&document,
+           QStringLiteral("<table>\n<tr>\n<td width=\"50%\">\n\n**left**\n\n- one\n- two\n\n</td>\n"
+                          "<td width=\"50%\">\n\nright text\n\n</td>\n</tr>\n</table>\n"));
+
+    QTextTable *table = nullptr;
+    for (QTextFrame::iterator it = document.rootFrame()->begin(); !it.atEnd(); ++it)
+        if (auto *candidate = qobject_cast<QTextTable *>(it.currentFrame()))
+            table = candidate;
+    QVERIFY(table != nullptr);
+    QCOMPARE(table->rows(), 1);
+    QCOMPARE(table->columns(), 2);
+
+    const QTextBlock first = table->cellAt(0, 0).firstCursorPosition().block();
+    QCOMPARE(first.text(), QStringLiteral("left"));
+    QVERIFY(formatAt(first, 0).fontWeight() >= QFont::Bold);
+
+    QTextCursor cell = table->cellAt(0, 0).firstCursorPosition();
+    bool hasList = false;
+    for (QTextBlock block = cell.block(); block.isValid(); block = block.next()) {
+        if (block.textList())
+            hasList = true;
+    }
+    QVERIFY(hasList);
+}
+
+void MarkdownTest::htmlBadgeRowStaysOnOneLine()
+{
+    // A row of remote-image badges (each its own <img> line, as READMEs write
+    // them) must come out as one line of chips, not one block per badge.
+    QTextDocument document;
+    render(&document,
+           QStringLiteral("<p align=\"center\">\n\n"
+                          "  <img src=\"https://example.com/a.svg\" alt=\"alpha\">\n"
+                          "  <img src=\"https://example.com/b.svg\" alt=\"beta\">\n"
+                          "  <img src=\"https://example.com/c.svg\" alt=\"gamma\">\n\n"
+                          "</p>\n"));
+
+    int chipBlocks = 0;
+    int chips = 0;
+    for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+        int inBlock = 0;
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().objectType() == MarkdownBuilder::chipObjectType)
+                ++inBlock;
+        }
+        if (inBlock > 0) {
+            ++chipBlocks;
+            chips += inBlock;
+        }
+        if (inBlock > 0)
+            QCOMPARE(block.blockFormat().alignment(), Qt::AlignHCenter);
+    }
+    QCOMPARE(chipBlocks, 1); // all three chips on one line
+    QCOMPARE(chips, 3);
 }
 
 void MarkdownTest::htmlImageHonoursWidthAttribute()

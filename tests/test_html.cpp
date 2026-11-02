@@ -15,6 +15,7 @@ private slots:
     void treatsVoidElementsAsSelfClosing();
     void handlesCommentsAndDeclarations();
     void tolerantOnMalformedInput();
+    void reportsSourceOffsetsForEveryToken();
 };
 
 void HtmlFragmentTest::parsesStartAndEndTags()
@@ -74,6 +75,30 @@ void HtmlFragmentTest::tolerantOnMalformedInput()
         text += token.text;
     QVERIFY(text.contains(QStringLiteral("a ")));
     QVERIFY(text.contains(QStringLiteral(" b and ")));
+}
+
+void HtmlFragmentTest::reportsSourceOffsetsForEveryToken()
+{
+    const QString html = QStringLiteral("<td width=\"50%\">hi <b>x</b></td>");
+    const QVector<HtmlToken> tokens = parseHtmlFragment(html);
+    QVERIFY(tokens.size() >= 3);
+
+    // Slicing the source with a token's [start, end) returns that token's own
+    // text -- the property the block renderer relies on to pull the raw inner
+    // markup (markdown and all) out of a container.
+    for (const HtmlToken &token : tokens) {
+        QVERIFY(token.start >= 0);
+        QVERIFY(token.end > token.start);
+        QVERIFY(token.end <= html.size());
+        const QString slice = html.mid(token.start, token.end - token.start);
+        if (token.kind == HtmlToken::Text)
+            QCOMPARE(slice, token.text);
+        else
+            QVERIFY(slice.startsWith(QLatin1Char('<')));
+    }
+
+    // The opening <td> and its attributes are covered end to end.
+    QCOMPARE(html.mid(tokens[0].start, tokens[0].end - tokens[0].start), QStringLiteral("<td width=\"50%\">"));
 }
 
 QTEST_MAIN(HtmlFragmentTest)

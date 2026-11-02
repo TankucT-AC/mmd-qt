@@ -46,6 +46,9 @@ constexpr unsigned kParserFlags =
 
 constexpr int kRuleLength = 40;
 
+// Defined further down; the parser entry point needs it earlier.
+static QString extractHtmlTables(const QString &source, QVector<QString> &tables);
+
 QString decodeEntityText(const char *data, unsigned size)
 {
     // The entity table keys include the '&' and ';' (e.g. "&amp;").
@@ -216,8 +219,15 @@ private:
     void emitTable();
 
     // HTML support: a tolerant subset that makes GitHub READMEs readable.
+    void startHtmlBlock();
     void renderHtmlBlock(const QString &html);
-    void applyInlineHtml(const QString &html);
+    void renderHtmlFragment(const QString &html, const QVector<HtmlToken> &tokens, int begin, int end);
+    void renderHtmlContainer(const HtmlToken &token, const QString &innerHtml);
+    void renderHtmlSubdocument(const QString &innerHtml, Qt::Alignment alignment);
+    void insertHtmlSubdocument(const QTextDocument &source, Qt::Alignment alignment);
+    void copyHtmlResources(const QTextDocument &source);
+    void renderHtmlTable(const QString &innerHtml);
+    void applyInlineHtml(const QString &html, bool openBlock = false);
     void insertSummary(const QString &html);
     void renderCallout(QTextFrame *quote);
 
@@ -234,11 +244,9 @@ private:
     QTextCharFormat ruleCharFormat() const;
 
     QTextBlockFormat paragraphFormat() const;
-    QTextBlockFormat centeredParagraphFormat() const;
     // Cell format for tables: Qt draws the grid between cells from the cell's
     // own border, so the colour has to live there, not only on the table.
     QTextTableCellFormat tableCellFormat(bool header) const;
-    void startHtmlBlock();
     QTextBlockFormat headingFormat(int level) const;
     QTextBlockFormat codeFormat(const QString &language) const;
     QTextFrameFormat codeFrameFormat(const QColor &background) const;
@@ -260,6 +268,9 @@ private:
 
     // The source being built, plus the cursor used to map blocks back to lines.
     QString m_source;
+    // Whole HTML tables lifted out of the source before md4c runs, indexed by
+    // the marker that stands in their place.
+    QVector<QString> m_extractedTables;
     qsizetype m_sourceScan = 0;
     int m_sourceLine = 0;
     // Start line of the last literal run consumed; the line a formula or an
@@ -301,7 +312,10 @@ private:
     QString m_htmlBuffer;
     QString m_pendingImageSrc;
     QString m_imageAltBuffer;
-    int m_htmlCenterDepth = 0; // inside <div align="center">
+    QVector<QPair<QString, Qt::Alignment>> m_openHtmlBlocks; // containers spanning blocks
+    // True while the block under the cursor is a run of inline HTML (a row of
+    // badges); the next inline HTML block continues it instead of starting a new one.
+    bool m_htmlInlineContinued = false;
     int m_htmlDetailsDepth = 0; // inside <details>
     QVector<QString> m_htmlTagStack; // open inline tags, for matching </...>
     QString m_kbdBuffer; // text collected between <kbd> and </kbd>
@@ -335,9 +349,12 @@ int onText(MD_TEXTTYPE type, const char *data, MD_SIZE size, void *userdata)
 
 bool Builder::run(const QString &markdown)
 {
-    const QByteArray utf8 = markdown.toUtf8();
+    // Pull whole HTML tables out first (see extractHtmlTables); the extracted
+    // source keeps the line count, so source-line mapping is unaffected.
+    m_extractedTables.clear();
+    m_source = extractHtmlTables(markdown, m_extractedTables);
+    const QByteArray utf8 = m_source.toUtf8();
 
-    m_source = markdown;
     m_sourceScan = 0;
     m_sourceLine = 0;
     m_verbatimSourceLine = -1;
@@ -449,13 +466,20 @@ void Builder::startBlock()
     const PendingBlock pending = m_pending;
     m_pending = PendingBlock{};
     m_blockCharFormat = pending.baseCharFormat;
+    m_htmlInlineContinued = false;
 
-    // Inside <div align="center"> every block is centred.
     QTextBlockFormat blockFormat = pending.format;
     if (pending.sourceLine >= 0)
         blockFormat.setProperty(MarkdownBuilder::sourceLineKey, pending.sourceLine);
-    if (m_htmlCenterDepth > 0)
-        blockFormat.setAlignment(Qt::AlignHCenter);
+    // A block-level HTML container (<div align="center">, <p align="right">)
+    // can span several markdown blocks -- CommonMark breaks the HTML block at
+    // a blank line -- so its alignment is carried on a stack and applied to
+    // every block until the closing tag arrives.
+    if (!m_openHtmlBlocks.isEmpty()) {
+        const Qt::Alignment alignment = m_openHtmlBlocks.last().second;
+        if (alignment != Qt::Alignment())
+            blockFormat.setAlignment(alignment);
+    }
 
     if (m_firstBlock) {
         m_cursor.setBlockFormat(blockFormat);
@@ -570,28 +594,6 @@ QTextBlockFormat Builder::paragraphFormat() const
     format.setLineHeight(122, QTextBlockFormat::ProportionalHeight);
     format.setBottomMargin(3);
     return format;
-}
-
-QTextBlockFormat Builder::centeredParagraphFormat() const
-{
-    QTextBlockFormat format = paragraphFormat();
-    if (m_htmlCenterDepth > 0)
-        format.setAlignment(Qt::AlignHCenter);
-    return format;
-}
-
-void Builder::startHtmlBlock()
-{
-    // Start a block for raw HTML content (an image, a fallback line). Unlike
-    // startBlock() there is no pending format, so the first block is formatted
-    // in place and later ones are inserted.
-    if (m_firstBlock) {
-        m_cursor.setBlockFormat(centeredParagraphFormat());
-        m_cursor.setBlockCharFormat(bodyCharFormat());
-    } else {
-        m_cursor.insertBlock(centeredParagraphFormat(), bodyCharFormat());
-    }
-    m_firstBlock = false;
 }
 
 QTextBlockFormat Builder::headingFormat(int level) const
@@ -1397,15 +1399,33 @@ void Builder::insertChip(const QString &text, MarkdownBuilder::ChipKind kind)
     m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
 }
 
-void Builder::applyInlineHtml(const QString &html)
+void Builder::applyInlineHtml(const QString &html, bool openBlock)
 {
     const QVector<HtmlToken> tokens = parseHtmlFragment(html);
+    // A block-level caller opens exactly one block for the whole run, so a row
+    // of badges stays on a line. An inline caller (HTML inside a markdown
+    // paragraph) only materializes a still-pending block; the tags belong to
+    // the paragraph already in progress.
+    if (m_pending.valid) {
+        startBlock();
+        m_htmlInlineContinued = false; // a markdown paragraph, not an HTML run
+    } else if (openBlock) {
+        startHtmlBlock();
+        m_htmlInlineContinued = true;
+    }
+    // Otherwise this continues the HTML-inline block already open, so several
+    // rows of badges that md4c hands over as separate blocks stay on one line.
+
     for (const HtmlToken &token : tokens) {
         switch (token.kind) {
         case HtmlToken::Text:
             if (!token.text.isEmpty()) {
-                startBlock();
-                m_cursor.insertText(token.text, composeCharFormat());
+                // A '\n' between inline tags is a soft break, not a paragraph:
+                // inserting it verbatim would split a row of badges into one
+                // block per badge. Keep it on the line as a space.
+                QString text = token.text;
+                text.replace(QLatin1Char('\n'), QLatin1Char(' '));
+                m_cursor.insertText(text, composeCharFormat());
             }
             break;
         case HtmlToken::Comment:
@@ -1434,14 +1454,11 @@ void Builder::applyInlineHtml(const QString &html)
                 m_kbdBuffer.clear();
                 m_htmlTagStack.append(name);
             } else if (name == QLatin1String("a")) {
-                startBlock();
                 m_linkHref = linkFor(htmlAttribute(token, QStringLiteral("href")));
                 m_htmlTagStack.append(name);
             } else if (name == QLatin1String("br")) {
-                startBlock();
                 m_cursor.insertText(QString(QChar(0x2028)), composeCharFormat());
             } else if (name == QLatin1String("img")) {
-                startBlock();
                 insertImageElement(htmlAttribute(token, QStringLiteral("src")),
                                    htmlAttribute(token, QStringLiteral("alt")),
                                    htmlDimension(htmlAttribute(token, QStringLiteral("width"))));
@@ -1466,7 +1483,6 @@ void Builder::applyInlineHtml(const QString &html)
                 m_span.sup = (std::max)(0, m_span.sup - 1);
             else if (open == QLatin1String("kbd")) {
                 m_inKbd = false;
-                startBlock();
                 insertChip(m_kbdBuffer.trimmed(), MarkdownBuilder::ChipKind::Key);
                 m_kbdBuffer.clear();
             } else if (open == QLatin1String("a"))
@@ -1498,150 +1514,367 @@ void Builder::insertSummary(const QString &html)
     m_cursor.insertText(inner.trimmed(), title);
 }
 
+// Starts a block for raw HTML content (an image, a fallback line) whose own
+// tag opens it rather than a markdown span. Alignment inherited from an open
+// block-level container is applied, so an image inside <div align="center">
+// lands centred.
+void Builder::startHtmlBlock()
+{
+    QTextBlockFormat format = paragraphFormat();
+    if (!m_openHtmlBlocks.isEmpty()) {
+        const Qt::Alignment alignment = m_openHtmlBlocks.last().second;
+        if (alignment != Qt::Alignment())
+            format.setAlignment(alignment);
+    }
+
+    if (m_firstBlock) {
+        m_cursor.setBlockFormat(format);
+        m_cursor.setBlockCharFormat(bodyCharFormat());
+    } else {
+        m_cursor.insertBlock(format, bodyCharFormat());
+    }
+    m_firstBlock = false;
+}
+
+// A block for an inline tag: a pending markdown block is materialized as usual,
+// otherwise this is HTML content opening its own block.
+// CommonMark ends an HTML block at a blank line, so a <table> written with
+// blank lines between its parts (as NEXUS.md does) reaches the builder as a
+// scatter of HTML fragments and markdown paragraphs. Pull each whole table out
+// of the source before parsing and leave a one-line marker behind: the table
+// is then rendered in one piece, and the line count is preserved so
+// click-to-source stays correct for everything around it.
+static QString extractHtmlTables(const QString &source, QVector<QString> &tables)
+{
+    QStringList lines = source.split(QLatin1Char('\n'));
+    for (int i = 0; i < lines.size(); ++i) {
+        if (!lines[i].trimmed().startsWith(QLatin1String("<table"), Qt::CaseInsensitive))
+            continue;
+
+        int j = i;
+        while (j < lines.size() && !lines[j].contains(QLatin1String("</table>"), Qt::CaseInsensitive))
+            ++j;
+        if (j >= lines.size())
+            break; // unterminated: leave it alone
+
+        const int index = int(tables.size());
+        tables.append(lines.mid(i, j - i + 1).join(QLatin1Char('\n')));
+        lines[i] = QStringLiteral("<!--mmd-html-table-%1-->").arg(index);
+        for (int k = i + 1; k <= j; ++k)
+            lines[k].clear();
+        i = j;
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
 void Builder::renderHtmlBlock(const QString &html)
 {
+    // A marker left by the table pre-pass: render the table we extracted.
+    const QString trimmed = html.trimmed();
+    static const QRegularExpression tableMarker(QStringLiteral("^<!--mmd-html-table-(\\d+)-->$"));
+    const QRegularExpressionMatch match = tableMarker.match(trimmed);
+    if (match.hasMatch()) {
+        const int index = match.captured(1).toInt();
+        if (index >= 0 && index < m_extractedTables.size()) {
+            const QString &raw = m_extractedTables.at(index);
+            const int open = int(raw.indexOf(QLatin1Char('>')));
+            const int close = int(raw.lastIndexOf(QLatin1String("</table>"), -1, Qt::CaseInsensitive));
+            if (open >= 0 && close > open)
+                renderHtmlTable(raw.mid(open + 1, close - open - 1));
+        }
+        return;
+    }
     const QVector<HtmlToken> tokens = parseHtmlFragment(html);
-    bool handled = false;
+    renderHtmlFragment(html, tokens, 0, int(tokens.size()));
+}
+
+// Tags whose content is a run of blocks; the renderer recurses into them
+// instead of treating them as inline text.
+static bool isHtmlBlockContainer(const QString &name)
+{
+    static const QSet<QString> containers = {
+        QStringLiteral("p"),       QStringLiteral("div"),        QStringLiteral("center"),     QStringLiteral("section"), QStringLiteral("article"),
+        QStringLiteral("header"),  QStringLiteral("footer"),     QStringLiteral("main"),       QStringLiteral("aside"),   QStringLiteral("nav"),
+        QStringLiteral("figure"),  QStringLiteral("figcaption"), QStringLiteral("blockquote"), QStringLiteral("pre"),     QStringLiteral("table"),
+        QStringLiteral("details"), QStringLiteral("summary"),    QStringLiteral("ul"),         QStringLiteral("ol"),      QStringLiteral("li"),
+        QStringLiteral("dl"),      QStringLiteral("dt"),         QStringLiteral("dd"),         QStringLiteral("h1"),      QStringLiteral("h2"),
+        QStringLiteral("h3"),      QStringLiteral("h4"),         QStringLiteral("h5"),         QStringLiteral("h6"),
+    };
+    return containers.contains(name);
+}
+
+static int findHtmlMatchingEnd(const QVector<HtmlToken> &tokens, int openIndex, int end, const QString &name)
+{
+    int depth = 1;
+    for (int i = openIndex + 1; i < end; ++i) {
+        const HtmlToken &token = tokens[i];
+        if (token.kind == HtmlToken::StartTag && token.name == name && !token.selfClosing)
+            ++depth;
+        else if (token.kind == HtmlToken::EndTag && token.name == name && --depth == 0)
+            return i;
+    }
+    return -1;
+}
+
+static Qt::Alignment htmlAlignment(const HtmlToken &token)
+{
+    const QString align = htmlAttribute(token, QStringLiteral("align"));
+    if (align.compare(QLatin1String("center"), Qt::CaseInsensitive) == 0)
+        return Qt::AlignHCenter;
+    if (align.compare(QLatin1String("right"), Qt::CaseInsensitive) == 0)
+        return Qt::AlignRight;
+    return Qt::Alignment();
+}
+
+// Walks one range of tokens. Block containers are rendered structurally;
+// everything else (text and inline tags) is handed to the inline renderer in
+// runs, so a paragraph of mixed markup keeps its emphasis, links and images.
+void Builder::renderHtmlFragment(const QString &html, const QVector<HtmlToken> &tokens, int begin, int end)
+{
+    int runStart = -1;
+
+    const auto flushInline = [&](int upto) {
+        if (runStart < 0)
+            return;
+        const int from = tokens[runStart].start;
+        const int to = tokens[upto].end;
+        runStart = -1;
+        if (to > from) {
+            const QString run = html.mid(from, to - from);
+            // Whitespace between block tags carries no content and must not
+            // become a stray paragraph.
+            if (!run.trimmed().isEmpty())
+                applyInlineHtml(run, !m_htmlInlineContinued);
+        }
+    };
+
+    for (int i = begin; i < end; ++i) {
+        const HtmlToken &token = tokens[i];
+
+        if ((token.kind == HtmlToken::StartTag || token.kind == HtmlToken::SelfClosingTag) && isHtmlBlockContainer(token.name)) {
+            flushInline(i);
+            const int close = findHtmlMatchingEnd(tokens, i, end, token.name);
+            if (close >= 0) {
+                const int innerFrom = token.end;
+                const int innerTo = tokens[close].start;
+                renderHtmlContainer(token, html.mid(innerFrom, (std::max)(innerFrom, innerTo) - innerFrom));
+                i = close;
+            } else {
+                // No closing tag here: the container runs past this block, so
+                // remember it and let startBlock() align what follows.
+                m_openHtmlBlocks.append({token.name, htmlAlignment(token)});
+                m_htmlInlineContinued = false;
+            }
+            continue;
+        }
+
+        if (token.kind == HtmlToken::EndTag && isHtmlBlockContainer(token.name)) {
+            // Closes a container opened in an earlier block.
+            if (!m_openHtmlBlocks.isEmpty() && m_openHtmlBlocks.last().first == token.name)
+                m_openHtmlBlocks.removeLast();
+            continue;
+        }
+
+        if (token.kind == HtmlToken::Text || token.kind == HtmlToken::StartTag || token.kind == HtmlToken::EndTag || token.kind == HtmlToken::SelfClosingTag
+            || token.kind == HtmlToken::Comment) {
+            if (runStart < 0)
+                runStart = i;
+        }
+    }
+    flushInline(end - 1);
+}
+
+void Builder::renderHtmlContainer(const HtmlToken &token, const QString &innerHtml)
+{
+    const QString name = token.name;
+
+    if (name == QLatin1String("table")) {
+        renderHtmlTable(innerHtml);
+        return;
+    }
+    if (name == QLatin1String("summary")) {
+        insertSummary(innerHtml);
+        return;
+    }
+    if (name == QLatin1String("details")) {
+        ++m_htmlDetailsDepth;
+        const QVector<HtmlToken> tokens = parseHtmlFragment(innerHtml);
+        renderHtmlFragment(innerHtml, tokens, 0, int(tokens.size()));
+        --m_htmlDetailsDepth;
+        return;
+    }
+    if (name == QLatin1String("blockquote")) {
+        pushQuote();
+        renderHtmlSubdocument(innerHtml, htmlAlignment(token));
+        popFrame();
+        return;
+    }
+
+    renderHtmlSubdocument(innerHtml, htmlAlignment(token));
+}
+
+// Renders the markdown-and-HTML inside a container by running it back through
+// the builder in a scratch document, then pasting the result in. This is what
+// makes <td> cells that contain markdown work the way GitHub spells them.
+void Builder::renderHtmlSubdocument(const QString &innerHtml, Qt::Alignment alignment)
+{
+    if (innerHtml.trimmed().isEmpty())
+        return;
+
+    QTextDocument sub;
+    MarkdownBuilder::build(&sub, innerHtml, m_style);
+    if (sub.isEmpty())
+        return;
+    copyHtmlResources(sub);
+    insertHtmlSubdocument(sub, alignment);
+}
+
+void Builder::insertHtmlSubdocument(const QTextDocument &source, Qt::Alignment alignment)
+{
+    if (!m_firstBlock)
+        m_cursor.insertBlock(paragraphFormat(), bodyCharFormat());
+    m_firstBlock = false;
+
+    const int firstBlockNumber = m_cursor.block().blockNumber();
+    // insertFragment folds the fragment's first block into the current one and
+    // appends the rest, so the range it occupies is the fragment's block count.
+    const int lastBlockNumber = firstBlockNumber + source.blockCount() - 1;
+    m_cursor.insertFragment(QTextDocumentFragment(&source));
+
+    if (alignment != Qt::Alignment()) {
+        // The fragment copy replaced the current block and appended the rest;
+        // walk the block numbers it occupies and align each.
+        for (int number = firstBlockNumber; number <= lastBlockNumber; ++number) {
+            const QTextBlock block = m_document->findBlockByNumber(number);
+            if (!block.isValid())
+                continue;
+            QTextBlockFormat format = block.blockFormat();
+            format.setAlignment(alignment);
+            QTextCursor cursor(block);
+            cursor.setBlockFormat(format);
+        }
+    }
+
+    // Leave the cursor at the very end so the next block lands after this one.
+    m_cursor.setPosition(m_document->characterCount() - 1);
+    m_htmlInlineContinued = false;
+}
+
+void Builder::copyHtmlResources(const QTextDocument &source)
+{
+    // A fragment copy carries formats, not document resources: any SVG the
+    // inner build rasterised has to be re-registered on our own document or
+    // the image would come out blank in the outer one.
+    for (QTextBlock block = source.firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QUrl url(format.toImageFormat().name());
+            if (!url.isValid() || m_document->resource(QTextDocument::ImageResource, url).isValid())
+                continue;
+            const QVariant resource = source.resource(QTextDocument::ImageResource, url);
+            if (!resource.isNull())
+                m_document->addResource(QTextDocument::ImageResource, url, resource);
+        }
+    }
+}
+
+void Builder::renderHtmlTable(const QString &innerHtml)
+{
+    const QVector<HtmlToken> tokens = parseHtmlFragment(innerHtml);
+
+    struct HtmlCell {
+        QString content;
+        bool header = false;
+        int colspan = 1;
+        int rowspan = 1;
+        Qt::Alignment alignment;
+    };
+    QVector<QVector<HtmlCell>> rows;
 
     for (int i = 0; i < tokens.size(); ++i) {
         const HtmlToken &token = tokens[i];
-
-        if (token.kind == HtmlToken::StartTag && token.name == QLatin1String("summary")) {
-            handled = true;
-            QString inner;
-            int j = i + 1;
-            for (; j < tokens.size(); ++j) {
-                if (tokens[j].kind == HtmlToken::EndTag && tokens[j].name == QLatin1String("summary"))
-                    break;
-                if (tokens[j].kind == HtmlToken::Text)
-                    inner += tokens[j].text;
-            }
-            insertSummary(inner);
-            i = j;
+        if (token.kind != HtmlToken::StartTag)
+            continue;
+        if (token.name == QLatin1String("tr")) {
+            rows.append(QVector<HtmlCell>());
             continue;
         }
+        if (token.name != QLatin1String("td") && token.name != QLatin1String("th"))
+            continue;
+        if (rows.isEmpty())
+            rows.append(QVector<HtmlCell>());
 
-        if (token.kind == HtmlToken::StartTag && token.name == QLatin1String("table")) {
-            handled = true;
-            // Collect the whole table, then render it as a QTextTable.
-            QVector<QVector<QString>> rows;
-            QVector<bool> headerRow;
-            QVector<QString> currentRow;
-            bool currentHeader = false;
-            bool inCell = false;
-            QString cellText;
-            for (int j = i + 1; j < tokens.size(); ++j) {
-                const HtmlToken &t = tokens[j];
-                if (t.kind == HtmlToken::EndTag && t.name == QLatin1String("table"))
-                    break;
-                if (t.kind == HtmlToken::StartTag && t.name == QLatin1String("tr")) {
-                    currentRow.clear();
-                    currentHeader = false;
-                    continue;
-                }
-                if (t.kind == HtmlToken::EndTag && t.name == QLatin1String("tr") && !currentRow.isEmpty()) {
-                    rows.append(currentRow);
-                    headerRow.append(currentHeader);
-                    continue;
-                }
-                if (t.kind == HtmlToken::StartTag && (t.name == QLatin1String("td") || t.name == QLatin1String("th"))) {
-                    inCell = true;
-                    cellText.clear();
-                    if (t.name == QLatin1String("th"))
-                        currentHeader = true;
-                    continue;
-                }
-                if (t.kind == HtmlToken::EndTag && (t.name == QLatin1String("td") || t.name == QLatin1String("th"))) {
-                    if (inCell)
-                        currentRow.append(cellText.trimmed());
-                    inCell = false;
-                    continue;
-                }
-                if (inCell && t.kind == HtmlToken::Text)
-                    cellText += t.text;
-            }
-            if (!rows.isEmpty()) {
-                if (!m_firstBlock)
-                    m_cursor.insertBlock(QTextBlockFormat(), bodyCharFormat());
-                m_firstBlock = false;
-                unsigned columns = 0;
-                for (const QVector<QString> &row : rows)
-                    columns = (std::max)(columns, unsigned(row.size()));
-                QTextTableFormat format;
-                format.setBorder(1);
-                format.setBorderBrush(QBrush(m_style.theme.markdown.tableBorder));
-                format.setCellSpacing(0);
-                format.setCellPadding(8);
-                QVector<QTextLength> constraints;
-                for (unsigned column = 0; column < columns; ++column)
-                    constraints.append(QTextLength(QTextLength::PercentageLength, 100.0 / columns));
-                format.setColumnWidthConstraints(constraints);
-                QTextTable *table = m_cursor.insertTable(int(rows.size()), int(columns), format);
-                for (int row = 0; row < rows.size(); ++row) {
-                    for (int column = 0; column < rows[row].size(); ++column) {
-                        QTextCursor cellCursor = table->cellAt(row, column).firstCursorPosition();
-                        cellCursor.insertText(rows[row][column], bodyCharFormat());
-                        table->cellAt(row, column).setFormat(tableCellFormat(headerRow[row]));
+        const int close = findHtmlMatchingEnd(tokens, i, int(tokens.size()), token.name);
+        const int innerTo = close >= 0 ? tokens[close].start : tokens.last().end;
+        HtmlCell cell;
+        cell.content = innerHtml.mid(token.end, (std::max)(token.end, innerTo) - token.end);
+        cell.header = token.name == QLatin1String("th");
+        const int colspan = htmlAttribute(token, QStringLiteral("colspan")).toInt();
+        const int rowspan = htmlAttribute(token, QStringLiteral("rowspan")).toInt();
+        if (colspan > 1)
+            cell.colspan = colspan;
+        if (rowspan > 1)
+            cell.rowspan = rowspan;
+        cell.alignment = htmlAlignment(token);
+        rows.last().append(cell);
+        if (close >= 0)
+            i = close;
+    }
+
+    rows.removeIf([](const QVector<HtmlCell> &row) {
+        return row.isEmpty();
+    });
+    if (rows.isEmpty())
+        return;
+
+    unsigned columns = 0;
+    for (const QVector<HtmlCell> &row : rows)
+        columns = (std::max)(columns, unsigned(row.size()));
+    if (columns == 0)
+        return;
+
+    if (!m_firstBlock)
+        m_cursor.insertBlock(QTextBlockFormat(), bodyCharFormat());
+    m_firstBlock = false;
+
+    QTextTableFormat format;
+    format.setBorder(1);
+    format.setBorderBrush(QBrush(m_style.theme.markdown.tableBorder));
+    format.setCellSpacing(0);
+    format.setCellPadding(8);
+    QVector<QTextLength> constraints;
+    for (unsigned column = 0; column < columns; ++column)
+        constraints.append(QTextLength(QTextLength::PercentageLength, 100.0 / columns));
+    format.setColumnWidthConstraints(constraints);
+
+    QTextTable *table = m_cursor.insertTable(int(rows.size()), int(columns), format);
+    for (int row = 0; row < rows.size(); ++row) {
+        for (int column = 0; column < rows[row].size(); ++column) {
+            const HtmlCell &cell = rows[row][column];
+            QTextCursor cellCursor = table->cellAt(row, column).firstCursorPosition();
+
+            QTextDocument sub;
+            MarkdownBuilder::build(&sub, cell.content, m_style);
+            if (!sub.isEmpty()) {
+                copyHtmlResources(sub);
+                cellCursor.insertFragment(QTextDocumentFragment(&sub));
+                if (cell.alignment != Qt::Alignment()) {
+                    for (QTextBlock block = cellCursor.block(); block.isValid(); block = block.next()) {
+                        QTextBlockFormat blockFormat = block.blockFormat();
+                        blockFormat.setAlignment(cell.alignment);
+                        QTextCursor alignCursor(block);
+                        alignCursor.setBlockFormat(blockFormat);
                     }
                 }
-                m_cursor = QTextCursor(m_document);
-                m_cursor.movePosition(QTextCursor::End);
             }
-            // Skip past the table.
-            for (int j = i + 1; j < tokens.size(); ++j) {
-                if (tokens[j].kind == HtmlToken::EndTag && tokens[j].name == QLatin1String("table")) {
-                    i = j;
-                    break;
-                }
-            }
-            continue;
-        }
-
-        if ((token.kind == HtmlToken::StartTag || token.kind == HtmlToken::SelfClosingTag) && token.name == QLatin1String("img")) {
-            handled = true;
-            startHtmlBlock();
-            insertImageElement(htmlAttribute(token, QStringLiteral("src")),
-                               htmlAttribute(token, QStringLiteral("alt")),
-                               htmlDimension(htmlAttribute(token, QStringLiteral("width"))));
-            continue;
-        }
-
-        if (token.kind == HtmlToken::StartTag && token.name == QLatin1String("div")) {
-            handled = true;
-            if (htmlAttribute(token, QStringLiteral("align")).compare(QLatin1String("center"), Qt::CaseInsensitive) == 0)
-                ++m_htmlCenterDepth;
-            continue;
-        }
-        if (token.kind == HtmlToken::EndTag && token.name == QLatin1String("div")) {
-            handled = true;
-            if (m_htmlCenterDepth > 0)
-                --m_htmlCenterDepth;
-            continue;
-        }
-
-        if (token.kind == HtmlToken::StartTag && token.name == QLatin1String("details")) {
-            handled = true;
-            ++m_htmlDetailsDepth;
-            continue;
-        }
-        if (token.kind == HtmlToken::EndTag && token.name == QLatin1String("details")) {
-            handled = true;
-            if (m_htmlDetailsDepth > 0)
-                --m_htmlDetailsDepth;
-            continue;
+            table->cellAt(row, column).setFormat(tableCellFormat(cell.header));
         }
     }
 
-    // Nothing we understand: keep the raw HTML visible rather than dropping it.
-    if (!handled) {
-        const QString raw = html.trimmed();
-        if (!raw.isEmpty()) {
-            startHtmlBlock();
-            QTextCharFormat format = codeCharFormat();
-            format.setForeground(m_style.theme.markdown.weakText);
-            m_cursor.insertText(raw, format);
-        }
-    }
+    m_cursor = QTextCursor(m_document);
+    m_cursor.movePosition(QTextCursor::End);
 }
 
 void Builder::renderCallout(QTextFrame *quote)
