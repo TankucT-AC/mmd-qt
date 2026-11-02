@@ -8,13 +8,14 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
+#include <QPainterPath>
 
 namespace
 {
 
-constexpr int kButtonSide = 26;
+constexpr int kButtonSide = 24;
 // The square the glyph is laid out in, centred in the button.
-constexpr int kGlyphSide = 18;
+constexpr int kGlyphSide = 16;
 constexpr qreal kGlyphPen = 1.4;
 
 /*
@@ -72,15 +73,27 @@ protected:
         painter.translate((width() - kGlyphSide) / 2.0, (height() - kGlyphSide) / 2.0);
 
         if (m_glyph == Glyph::Close) {
-            painter.drawLine(QPointF(4.0, 4.0), QPointF(14.0, 14.0));
-            painter.drawLine(QPointF(14.0, 4.0), QPointF(4.0, 14.0));
+            painter.drawLine(QPointF(3.5, 3.5), QPointF(12.5, 12.5));
+            painter.drawLine(QPointF(12.5, 3.5), QPointF(3.5, 12.5));
             return;
         }
 
-        // Two overlapping sheets: the docked pane, and the one that leaves.
-        constexpr qreal kSheet = 8.5;
-        painter.drawRoundedRect(QRectF(1.0, 1.0, kSheet, kSheet), 2.0, 2.0);
-        painter.drawRoundedRect(QRectF(8.5, 8.5, kSheet, kSheet), 2.0, 2.0);
+        // A square with a hole, the way Windows draws "restore down": the front
+        // square covers the back one, and the back square's border is cut short
+        // where it passes underneath. The cut is made with a clip path instead
+        // of an opaque fill, so it stays correct over the hover tint and in any
+        // theme without knowing the background colour.
+        const QRectF back(1.0, 1.0, 9.0, 9.0);
+        const QRectF front(6.0, 6.0, 9.0, 9.0);
+
+        const qreal margin = kGlyphPen / 2.0 + 0.2; // keep the cut clear of the front stroke
+        QPainterPath visible;
+        visible.addRect(QRectF(0.0, 0.0, kGlyphSide, kGlyphSide));
+        visible.addRect(front.adjusted(-margin, -margin, margin, margin)); // even-odd hole
+        painter.setClipPath(visible);
+        painter.drawRoundedRect(back, 2.0, 2.0);
+        painter.setClipping(false);
+        painter.drawRoundedRect(front, 2.0, 2.0);
     }
 
 private:
