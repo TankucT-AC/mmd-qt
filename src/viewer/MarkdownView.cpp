@@ -17,6 +17,7 @@
 #include <QElapsedTimer>
 #include <QEvent>
 #include <QGuiApplication>
+#include <QHash>
 #include <QKeyEvent>
 #include <QLocale>
 #include <QMouseEvent>
@@ -42,11 +43,50 @@ constexpr int kDefaultRenderIntervalMs = 40;
 // decides which heading counts as current. Sharing one value keeps the two
 // consistent: the section just scrolled to is always the one highlighted.
 constexpr int kHeadingTopGap = 8;
-}
+
+/*
+ * The document the preview renders into. Its one job is keeping decoded images
+ * across rebuilds: QTextDocument throws its resource cache away whenever the
+ * builder clears the text, so every render would re-read and re-decode every
+ * PNG the document shows. The cache lives outside the document — the view owns
+ * one hash that every render's document borrows — because each render builds
+ * into a freshly created document.
+ */
+class PreviewDocument final : public QTextDocument
+{
+public:
+    PreviewDocument(QObject *parent, QHash<QUrl, QVariant> *sharedImageCache)
+        : QTextDocument(parent)
+        , m_imageCache(sharedImageCache)
+    {
+        setUndoRedoEnabled(false); // a rebuilt preview has no undo history
+    }
+
+protected:
+    QVariant loadResource(int type, const QUrl &name) override
+    {
+        if (type != QTextDocument::ImageResource)
+            return QTextDocument::loadResource(type, name);
+
+        const auto cached = m_imageCache->constFind(name);
+        if (cached != m_imageCache->constEnd())
+            return *cached;
+
+        const QVariant loaded = QTextDocument::loadResource(type, name);
+        if (!loaded.isNull())
+            m_imageCache->insert(name, loaded);
+        return loaded;
+    }
+
+private:
+    QHash<QUrl, QVariant> *m_imageCache = nullptr;
+};
+} // namespace
 
 MarkdownView::MarkdownView(QWidget *parent)
     : QTextBrowser(parent)
-    , m_gifHandler(new GifObjectHandler(document(), this))
+    , m_documentOwner(new QObject(this))
+    , m_gifHandler(new GifObjectHandler(nullptr, this))
     , m_checkboxHandler(new CheckboxObjectHandler(this))
     , m_chipHandler(new ChipObjectHandler(this))
     , m_mathHandler(new MathObjectHandler(this))
@@ -57,10 +97,17 @@ MarkdownView::MarkdownView(QWidget *parent)
     setFrameShape(QFrame::NoFrame);
     connect(this, &QTextBrowser::anchorClicked, this, &MarkdownView::handleAnchor);
 
-    document()->documentLayout()->registerHandler(MarkdownBuilder::gifObjectType, m_gifHandler);
-    document()->documentLayout()->registerHandler(MarkdownBuilder::checkboxObjectType, m_checkboxHandler);
-    document()->documentLayout()->registerHandler(MarkdownBuilder::chipObjectType, m_chipHandler);
-    document()->documentLayout()->registerHandler(MarkdownBuilder::mathObjectType, m_mathHandler);
+    // Own documents from the start: the stock document a QTextEdit creates is
+    // its child, and a child document is deleted the moment another replaces
+    // it. The ping-pong pair below is owned by m_documentOwner instead.
+    // Own documents from the start: the stock document a QTextEdit creates is
+    // its child, and a child document is deleted the moment another replaces
+    // it. The render documents are owned by m_documentOwner instead.
+    auto *first = new PreviewDocument(m_documentOwner, &m_imageCache);
+    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache);
+    setDocument(first);
+    registerObjectHandlers(document());
+    m_gifHandler->setDocument(first);
 
     m_renderTimer = new QTimer(this);
     m_renderTimer->setSingleShot(true);
@@ -144,6 +191,13 @@ void MarkdownView::updateVisibleHeading()
     for (QTextBlock block = document()->firstBlock(); block.isValid(); block = block.next()) {
         if (block.blockFormat().intProperty(MarkdownBuilder::kindKey) != int(MarkdownBuilder::BlockKind::Heading))
             continue;
+
+        // A block the layout has not reached yet sits below everything that is
+        // drawn, so it counts as below the fold. Asking cursorRect() would
+        // force the layout of the whole prefix up to it -- for a large document
+        // that was the difference between an instant render and a frozen one.
+        if (block.layout()->lineCount() == 0)
+            break;
 
         QTextCursor cursor(block);
         if (cursorRect(cursor).top() > readingLine)
@@ -277,15 +331,58 @@ void MarkdownView::rebuild()
     QElapsedTimer timer;
     timer.start();
 
-    QScrollBar *scrollBar = verticalScrollBar();
-    const int previousValue = scrollBar->value();
+    // Read the anchor off the document that is showing right now; after the
+    // swap the same text is looked for in the fresh one.
     const QString anchorText = cursorForPosition(QPoint(0, 0)).block().text();
     const int anchorIndex = cursorForPosition(QPoint(0, 0)).block().blockNumber();
+    QScrollBar *scrollBar = verticalScrollBar();
+    const int previousValue = scrollBar->value();
 
-    if (!MarkdownBuilder::build(document(), m_source, m_style))
+    // Build into a freshly created detached document. It belongs to no widget,
+    // so no layout can react to it: a document that has already been shown
+    // carries started-layout state, and building into such a document makes
+    // QTextDocumentLayout relayout while the builder inserts blocks (and again
+    // under every block the highlighter touches) -- building into the live
+    // document was exactly that interleaving, and it is where the bulk of an
+    // open-file render went. QTextEdit installs the page size at the swap, and
+    // the remaining layout runs through its own bounded steps.
+    m_scratchDocument->deleteLater();
+    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache);
+
+    const bool built = MarkdownBuilder::build(m_scratchDocument, m_source, m_style);
+    if (!built) {
+        // A parse failure leaves the scratch in a partial state: keep showing
+        // the previous render, exactly as the in-place build did.
         qWarning("mmd: markdown parse failed; leaving the previous render in place");
-    m_codeHighlighter->highlight(document());
+        m_lastRenderMs = int(timer.elapsed());
+        return;
+    }
+    m_codeHighlighter->highlight(m_scratchDocument);
+
+    // Register the object handlers now -- after build and highlight, but
+    // before the swap. Two windows must not meet: a layout that already knows
+    // the object types reacts to every insertion (building with them attached
+    // relayouts under each block and typesets formulas mid-build), and
+    // QTextEdit's setDocument machinery measures the document synchronously
+    // for the scrollbar ranges -- an object type without a handler there
+    // measures as zero width, which is how a centred badge row ended up drawn
+    // over the column's right edge until the next full relayout.
+    registerObjectHandlers(m_scratchDocument);
+
+    // Swap it in. The outgoing document is reparented away from the edit (a
+    // document parented to a QTextEdit is deleted when another replaces it)
+    // and parked in the scratch slot, which the next rebuild replaces with a
+    // fresh document and drops.
+    QTextDocument *outgoing = document();
+    m_hoveredFrame = nullptr;
+    m_copiedFrame = nullptr;
+    outgoing->setParent(m_documentOwner);
+    setDocument(m_scratchDocument);
+    m_scratchDocument = outgoing;
+
+    m_gifHandler->setDocument(document());
     m_gifHandler->syncToDocument(); // stops movies for images no longer present
+    applyFindSelections(); // the old selections pointed at the old document
 
     // Prefer to keep the anchor block visually in place; fall back to the
     // absolute scroll offset when it cannot be found (e.g. the block was
@@ -318,6 +415,15 @@ void MarkdownView::rebuild()
     m_lastRenderMs = int(timer.elapsed());
     updateVisibleHeading();
     emit rendered();
+}
+
+void MarkdownView::registerObjectHandlers(QTextDocument *document)
+{
+    QAbstractTextDocumentLayout *layout = document->documentLayout();
+    layout->registerHandler(MarkdownBuilder::gifObjectType, m_gifHandler);
+    layout->registerHandler(MarkdownBuilder::checkboxObjectType, m_checkboxHandler);
+    layout->registerHandler(MarkdownBuilder::chipObjectType, m_chipHandler);
+    layout->registerHandler(MarkdownBuilder::mathObjectType, m_mathHandler);
 }
 
 void MarkdownView::buildPlaceholder()

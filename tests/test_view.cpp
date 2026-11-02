@@ -6,16 +6,21 @@
 #include "core/DocumentLimits.h"
 #include "core/MarkdownBuilder.h"
 #include "core/Theme.h"
+#include "viewer/GifObjectHandler.h"
 #include "viewer/MarkdownView.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QClipboard>
 #include <QColor>
+#include <QFile>
 #include <QGuiApplication>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QSet>
+#include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextBrowser>
+#include <QTextLayout>
 
 class ViewTest : public QObject
 {
@@ -40,6 +45,11 @@ private slots:
     void inlineMathBecomesADrawnObject();
     void sourceLineTracksTheBlock();
     void clickingThePreviewReportsTheSourceLine();
+    void documentPointerChangesAcrossRebuilds();
+    void handlersStayRegisteredAcrossManyRebuilds();
+    void gifAnimationsSurviveRebuilds();
+    void centeredBadgeRowStaysCenteredAfterSwap();
+    void reopeningTheDocumentRendersTheBadgeRowCorrectlyAgain();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -363,6 +373,165 @@ void ViewTest::clickingThePreviewReportsTheSourceLine()
 
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.at(0).at(0).toInt(), 2);
+}
+
+// The preview builds into a document that no widget watches, then swaps it in
+// atomically: building into the live document interleaves QTextDocumentLayout
+// work with every cursor insertion, which is where whole open-file delays came
+// from. A fresh build lands in a different document object each time.
+void ViewTest::documentPointerChangesAcrossRebuilds()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+
+    view.setMarkdown(QStringLiteral("# first\n\nsome text\n"));
+    const QTextDocument *first = view.document();
+    QVERIFY(view.document()->firstBlock().isValid());
+    QVERIFY(view.document()->toPlainText().contains(QLatin1String("some text")));
+
+    // Each render swaps in the other document of the pair: never the one that
+    // is showing right now.
+    view.setMarkdown(QStringLiteral("# second\n\nother text\n"));
+    QVERIFY(view.document() != first);
+    QVERIFY(view.document()->toPlainText().contains(QLatin1String("other text")));
+    QVERIFY(!view.document()->toPlainText().contains(QLatin1String("some text")));
+
+    // The third render swaps back -- and must still hand the view a fully
+    // built document, not an empty one.
+    const QTextDocument *second = view.document();
+    view.setMarkdown(QStringLiteral("# third\n\nmore text\n"));
+    QVERIFY(view.document() != second);
+    QVERIFY(view.document()->toPlainText().contains(QLatin1String("more text")));
+}
+
+void ViewTest::handlersStayRegisteredAcrossManyRebuilds()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+
+    const QVector<int> objectTypes = {
+        MarkdownBuilder::mathObjectType,
+        MarkdownBuilder::checkboxObjectType,
+        MarkdownBuilder::chipObjectType,
+        MarkdownBuilder::gifObjectType,
+    };
+
+    for (int round = 0; round < 6; ++round) {
+        view.setMarkdown(QStringLiteral("# round %1\n\n$x^2$ and - [ ] a task\n\n![badge](https://example.com/badge.svg)\n").arg(round));
+        QAbstractTextDocumentLayout *layout = view.document()->documentLayout();
+        for (const int type : objectTypes)
+            QVERIFY2(layout->handlerForObject(type) != nullptr, qPrintable(QStringLiteral("round %1: handler for type %2 missing").arg(round).arg(type)));
+    }
+}
+
+static const char *kAnimatedGifBase64 =
+    "R0lGODlhBAAEAIEAAP8AAAAAAAAAAAAAACH/"
+    "C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAABAAEAAAICQABCBxIsCCAgAAh+QQBCgABACwAAAAABAAEAIEAAP8AAAAAAAAAAAAICQABCBxIsCCAgAA7";
+
+// The movie objects live with the view, not with any single document: swapping
+// documents on every render must not stop the animation of a GIF that is still
+// on screen, and the handler must repaint into the document now showing.
+void ViewTest::gifAnimationsSurviveRebuilds()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QFile gif(dir.filePath(QStringLiteral("anim.gif")));
+    QVERIFY(gif.open(QIODevice::WriteOnly));
+    gif.write(QByteArray::fromBase64(kAnimatedGifBase64));
+    gif.close();
+
+    MarkdownView view;
+    view.resize(400, 300);
+    view.show();
+    view.setRenderInterval(0);
+    view.setBaseDir(dir.path());
+    view.setMarkdown(QStringLiteral("# gif\n\n![anim](anim.gif)\n"));
+
+    auto *handler = view.findChild<GifObjectHandler *>();
+    QVERIFY(handler);
+    QTRY_VERIFY_WITH_TIMEOUT(handler->hasRunningAnimations(), 3000);
+
+    view.setMarkdown(QStringLiteral("# gif\n\n![anim](anim.gif)\n"));
+    QTRY_VERIFY_WITH_TIMEOUT(handler->hasRunningAnimations(), 3000);
+}
+
+// README.md renders its shields.io badges as a centred row of chips. That row
+// is the only content in the app that makes a swap-time layout fault visible:
+// QTextEdit's own setDocument machinery measures the fresh document for the
+// scrollbar ranges before the rebuild gets a chance to register the object
+// handlers, an unhandled object measures as zero width, and the centred line
+// then sits at the middle of the column with the chips drawn over its right
+// edge. Resizing repaints correctly (a full relayout with handlers in place),
+// reopening breaks it again -- exactly the report that led here.
+static QString badgeDocument()
+{
+    return QStringLiteral(
+        "<div align=\"center\">\n"
+        "\n"
+        "[![alpha](https://img.shields.io/badge/alpha.svg)](https://example.com/a)\n"
+        "[![beta](https://img.shields.io/badge/beta.svg)](https://example.com/b)\n"
+        "[![gamma](https://img.shields.io/badge/gamma.svg)](https://example.com/g)\n"
+        "\n"
+        "</div>\n");
+}
+
+static QTextBlock chipBlockIn(const QTextDocument *document)
+{
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().objectType() == MarkdownBuilder::chipObjectType)
+                return block;
+        }
+    }
+    return QTextBlock();
+}
+
+static void checkBadgeRowIsCentred(const MarkdownView &view)
+{
+    const QTextBlock block = chipBlockIn(view.document());
+    QVERIFY2(block.isValid(), "the badge paragraph is missing from the document");
+    QVERIFY2(block.layout()->lineCount() > 0, "the badge row was never laid out");
+
+    const QTextLine line = block.layout()->lineAt(0);
+    QVERIFY2(line.naturalTextWidth() > 100,
+             "the chips row was measured as near-zero width: objects went through "
+             "the layout without their handler registered");
+
+    // The row must sit centred in the column, not run off its right edge.
+    const qreal left = view.cursorRect(QTextCursor(block)).left();
+    const qreal column = view.viewport()->width();
+    const qreal expected = (column - line.naturalTextWidth()) / 2.0;
+    QVERIFY2(
+        qAbs(left - expected) < 12.0,
+        qPrintable(QStringLiteral("row left %1, expected ~%2 (column %3, row width %4)").arg(left).arg(expected).arg(column).arg(line.naturalTextWidth())));
+    QVERIFY2(left + line.naturalTextWidth() <= column + 2.0, "the chips row runs past the right edge of the column");
+}
+
+void ViewTest::centeredBadgeRowStaysCenteredAfterSwap()
+{
+    MarkdownView view;
+    view.resize(700, 400);
+    view.show();
+    view.setRenderInterval(0);
+    view.setMarkdown(badgeDocument());
+    checkBadgeRowIsCentred(view);
+}
+
+void ViewTest::reopeningTheDocumentRendersTheBadgeRowCorrectlyAgain()
+{
+    MarkdownView view;
+    view.resize(700, 400);
+    view.show();
+    view.setRenderInterval(0);
+
+    // Open something else, then reopen the badges: every render swaps in a
+    // fresh document, so the fault must not depend on which render is first.
+    view.setMarkdown(QStringLiteral("# other\n\nplain text\n"));
+    view.setMarkdown(badgeDocument());
+    checkBadgeRowIsCentred(view);
+    view.setMarkdown(QStringLiteral("# other\n\nplain text\n"));
+    view.setMarkdown(badgeDocument());
+    checkBadgeRowIsCentred(view);
 }
 
 QTEST_MAIN(ViewTest)

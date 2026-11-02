@@ -28,6 +28,10 @@ public:
 
     void setMaximumWidth(int width);
 
+    // Retargets the handler when the view swaps in a freshly built document;
+    // the movies themselves stay, they are keyed by image path.
+    void setDocument(QTextDocument *document);
+
     // Stops and drops the movies for images no longer referenced by the
     // document. Call after a rebuild so a removed GIF does not animate forever.
     void syncToDocument();

@@ -17,6 +17,17 @@ GifObjectHandler::GifObjectHandler(QTextDocument *document, QObject *parent)
 {
 }
 
+void GifObjectHandler::setDocument(QTextDocument *document)
+{
+    if (m_document == document)
+        return;
+
+    // Positions refer to the document they were recorded in; they mean nothing
+    // to the document that is about to show. drawObject() records them again.
+    m_positions.clear();
+    m_document = document;
+}
+
 void GifObjectHandler::setMaximumWidth(int width)
 {
     m_maximumWidth = width;
@@ -39,6 +50,9 @@ QPixmap GifObjectHandler::scaledFrame(const QString &path, const QSize &size)
 
 void GifObjectHandler::syncToDocument()
 {
+    if (!m_document)
+        return;
+
     QSet<QString> present;
     for (QTextBlock block = m_document->firstBlock(); block.isValid(); block = block.next()) {
         for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
