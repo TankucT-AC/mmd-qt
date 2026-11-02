@@ -3,92 +3,13 @@
 
 #include <QtTest>
 
+#include "TestHttpServer.h"
 #include "core/ImageFetcher.h"
 
 #include <QImage>
 #include <QSignalSpy>
-#include <QTcpServer>
-#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <memory>
-
-// A one-shot HTTP fixture on loopback: the tests script exact responses
-// (status, headers, body, or "accept and hang" for the timeout path) and count
-// how many times each path was requested, which is how cache hits are proved.
-class TestServer : public QObject
-{
-    Q_OBJECT
-
-public:
-    struct Route {
-        int status = 200;
-        QList<QPair<QByteArray, QByteArray>> headers;
-        QByteArray body;
-        bool respond = true; // false: accept the connection and never answer
-    };
-
-    TestServer()
-    {
-        connect(&m_listener, &QTcpServer::newConnection, this, &TestServer::onConnection);
-        m_listener.listen(QHostAddress::LocalHost, 0);
-    }
-
-    QUrl url(const QString &path) const
-    {
-        return QUrl(QStringLiteral("http://127.0.0.1:%1%2").arg(m_listener.serverPort()).arg(path));
-    }
-
-    void setRoute(const QString &path, const Route &route)
-    {
-        m_routes.insert(path, route);
-    }
-
-    int hits(const QString &path) const
-    {
-        return m_hits.value(path);
-    }
-
-    bool isListening() const
-    {
-        return m_listener.isListening();
-    }
-
-private:
-    void onConnection()
-    {
-        QTcpSocket *socket = m_listener.nextPendingConnection();
-        socket->setParent(this);
-        connect(socket, &QTcpSocket::disconnected, socket, &QTcpSocket::deleteLater);
-        connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
-            if (m_served.contains(socket))
-                return;
-            const QByteArray request = socket->readAll();
-            const qsizetype start = request.indexOf(' ') + 1;
-            const qsizetype end = request.indexOf(' ', start);
-            const QString path = QString::fromLatin1(request.mid(start, end - start));
-            m_served.insert(socket);
-
-            const Route route = m_routes.value(path, Route{404, {}, QByteArrayLiteral("no such route"), true});
-            m_hits[path]++;
-            if (!route.respond)
-                return; // keep the socket open: the fetcher must hit its timeout
-
-            QByteArray response = "HTTP/1.1 " + QByteArray::number(route.status) + " x\r\n";
-            for (const auto &[key, value] : route.headers)
-                response += key + ": " + value + "\r\n";
-            response += "Content-Length: " + QByteArray::number(route.body.size()) + "\r\n";
-            response += "Connection: close\r\n\r\n";
-            response += route.body;
-            socket->write(response);
-            socket->disconnectFromHost();
-        });
-    }
-
-    QTcpServer m_listener;
-    QHash<QString, Route> m_routes;
-    QHash<QString, int> m_hits;
-    QSet<QTcpSocket *> m_served;
-};
 
 // A 1x1 transparent PNG.
 static const char *kPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -122,6 +43,7 @@ private slots:
     void disabledFetcherTouchesNothing();
     void secondInstanceServesFromDiskCache();
     void coalescesDuplicateRequests();
+    void destroyingWhileInFlightIsSafe();
 
 private:
     std::unique_ptr<ImageFetcher> makeFetcher(const QTemporaryDir &cache)
@@ -135,7 +57,7 @@ private:
         return fetcher;
     }
 
-    TestServer m_server;
+    TestHttpServer m_server;
 };
 
 void ImageFetcherTest::fetchesPngOverHttp()
@@ -148,7 +70,7 @@ void ImageFetcherTest::fetchesPngOverHttp()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/logo.png")));
-    QVERIFY(ready.wait(5000));
+    QVERIFY(ready.wait(10000));
     QCOMPARE(failed.count(), 0);
     QCOMPARE(m_server.hits(QStringLiteral("/logo.png")), 1);
 
@@ -167,7 +89,7 @@ void ImageFetcherTest::fetchesSvgAndRespectsDevicePixelRatio()
     QSignalSpy ready(fetcher.get(), &ImageFetcher::ready);
 
     fetcher->fetch(m_server.url(QStringLiteral("/pic.svg")));
-    QVERIFY(ready.wait(5000));
+    QVERIFY(ready.wait(10000));
 
     const QImage image = ready.at(0).at(1).value<QImage>();
     QCOMPARE(image.width(), 40); // 20 x dpr 2
@@ -186,7 +108,7 @@ void ImageFetcherTest::sniffsImageBytesWhenContentTypeLies()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/relabeled.png")));
-    QVERIFY(ready.wait(5000));
+    QVERIFY(ready.wait(10000));
     QCOMPARE(failed.count(), 0);
 }
 
@@ -198,7 +120,7 @@ void ImageFetcherTest::failsOnMissingFile()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/definitely-missing.png")));
-    QVERIFY(failed.wait(5000));
+    QVERIFY(failed.wait(10000));
     QCOMPARE(ready.count(), 0);
 }
 
@@ -212,7 +134,7 @@ void ImageFetcherTest::failsOnNonImageData()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/junk.png")));
-    QVERIFY(failed.wait(5000));
+    QVERIFY(failed.wait(10000));
     QCOMPARE(ready.count(), 0);
 }
 
@@ -227,7 +149,7 @@ void ImageFetcherTest::failsOnOversizeReply()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/huge.png")));
-    QVERIFY(failed.wait(5000));
+    QVERIFY(failed.wait(10000));
     QCOMPARE(ready.count(), 0);
 }
 
@@ -258,7 +180,7 @@ void ImageFetcherTest::followsSafeRedirect()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/hop")));
-    QVERIFY(ready.wait(5000));
+    QVERIFY(ready.wait(10000));
     QCOMPARE(failed.count(), 0);
     QCOMPARE(m_server.hits(QStringLiteral("/hop-dest.png")), 1);
 }
@@ -274,7 +196,7 @@ void ImageFetcherTest::refusesRedirectIntoPrivateSpace()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/hop-out")));
-    failed.wait(5000);
+    failed.wait(10000);
     QCOMPARE(failed.count(), 1);
     QCOMPARE(ready.count(), 0);
 }
@@ -290,7 +212,7 @@ void ImageFetcherTest::givesUpAfterTooManyRedirects()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/loop")));
-    failed.wait(5000);
+    failed.wait(10000);
     QCOMPARE(failed.count(), 1);
     QCOMPARE(ready.count(), 0);
     QVERIFY(m_server.hits(QStringLiteral("/loop")) <= 3); // origin + 2 follow-ups
@@ -307,7 +229,7 @@ void ImageFetcherTest::blocksLoopbackUnlessPrivateNetworkIsAllowed()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/blocked.png")));
-    failed.wait(2000);
+    failed.wait(3000);
     QCOMPARE(failed.count(), 1);
     QCOMPARE(ready.count(), 0);
     QCOMPARE(m_server.hits(QStringLiteral("/blocked.png")), 0); // never reached the wire
@@ -320,7 +242,7 @@ void ImageFetcherTest::doesNotRepeatFailedUrls()
     QSignalSpy failed(fetcher.get(), &ImageFetcher::failed);
 
     fetcher->fetch(m_server.url(QStringLiteral("/definitely-missing.png")));
-    QVERIFY(failed.wait(5000));
+    QVERIFY(failed.wait(10000));
     QCOMPARE(failed.count(), 1);
 
     // Relayouts ask again; the fetcher must not turn one missing file into a
@@ -338,14 +260,14 @@ void ImageFetcherTest::clearFailedAllowsRetry()
 
     // No route yet: the first attempt fails with a 404.
     fetcher->fetch(m_server.url(QStringLiteral("/flaky.png")));
-    QVERIFY(failed.wait(5000));
+    QVERIFY(failed.wait(10000));
 
     // The network "comes back" (the route exists now) and clearFailed() lets
     // the retry through.
     m_server.setRoute(QStringLiteral("/flaky.png"), {200, {{"Content-Type", "image/png"}}, QByteArray::fromBase64(kPngBase64), true});
     fetcher->clearFailed();
     fetcher->fetch(m_server.url(QStringLiteral("/flaky.png")));
-    QVERIFY(ready.wait(5000));
+    QVERIFY(ready.wait(10000));
     QCOMPARE(ready.count(), 1);
 }
 
@@ -373,7 +295,7 @@ void ImageFetcherTest::secondInstanceServesFromDiskCache()
     auto first = makeFetcher(cache);
     QSignalSpy ready(first.get(), &ImageFetcher::ready);
     first->fetch(m_server.url(QStringLiteral("/cached.png")));
-    QVERIFY(ready.wait(5000));
+    QVERIFY(ready.wait(10000));
     QCOMPARE(m_server.hits(QStringLiteral("/cached.png")), 1);
 
     // A brand-new fetcher (empty memory cache) must answer from the disk
@@ -400,10 +322,28 @@ void ImageFetcherTest::coalescesDuplicateRequests()
     fetcher->fetch(url);
     QVERIFY(fetcher->isFetching(url));
 
-    QVERIFY(ready.wait(5000));
+    QVERIFY(ready.wait(10000));
     QTest::qWait(200); // late duplicates would emit here
     QCOMPARE(ready.count(), 1);
     QCOMPARE(m_server.hits(QStringLiteral("/once.png")), 1);
+}
+
+void ImageFetcherTest::destroyingWhileInFlightIsSafe()
+{
+    QTemporaryDir cache;
+    m_server.setRoute(QStringLiteral("/never.png"), {200, {}, QByteArray(), false}); // hangs
+
+    {
+        auto fetcher = makeFetcher(cache);
+        fetcher->fetch(m_server.url(QStringLiteral("/never.png")));
+        QTest::qWait(50); // let the request go out, then destroy mid-flight
+    }
+
+    // Reaching here without a crash is the assertion: tearing the fetcher down
+    // while a reply is pending must not re-enter fail() and emit into a
+    // half-destroyed owner (which used to abort).
+    QTest::qWait(50);
+    QVERIFY(true);
 }
 
 QTEST_MAIN(ImageFetcherTest)

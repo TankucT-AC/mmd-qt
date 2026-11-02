@@ -4,6 +4,8 @@
 #include "viewer/MarkdownView.h"
 
 #include "core/FontManager.h"
+#include "core/ImageFetcher.h"
+#include "core/ImageResolver.h"
 #include "viewer/CheckboxObjectHandler.h"
 #include "viewer/ChipObjectHandler.h"
 #include "viewer/CodeHighlighter.h"
@@ -18,6 +20,7 @@
 #include <QEvent>
 #include <QGuiApplication>
 #include <QHash>
+#include <QImage>
 #include <QKeyEvent>
 #include <QLocale>
 #include <QMouseEvent>
@@ -28,6 +31,7 @@
 #include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QTextFrame>
+#include <QTextImageFormat>
 #include <QTimer>
 #include <QWheelEvent>
 
@@ -55,9 +59,10 @@ constexpr int kHeadingTopGap = 8;
 class PreviewDocument final : public QTextDocument
 {
 public:
-    PreviewDocument(QObject *parent, QHash<QUrl, QVariant> *sharedImageCache)
+    PreviewDocument(QObject *parent, QHash<QUrl, QVariant> *sharedImageCache, ImageFetcher *fetcher)
         : QTextDocument(parent)
         , m_imageCache(sharedImageCache)
+        , m_fetcher(fetcher)
     {
         setUndoRedoEnabled(false); // a rebuilt preview has no undo history
     }
@@ -72,6 +77,18 @@ protected:
         if (cached != m_imageCache->constEnd())
             return *cached;
 
+        if (m_fetcher && m_fetcher->isEnabled() && ImageResolver::isRemote(name.toString())) {
+            // The download is asynchronous: an empty resource now, the image
+            // when it arrives. The request itself is deferred to the next
+            // event-loop turn so a synchronous disk-cache hit cannot re-enter
+            // the document while it is being laid out.
+            ImageFetcher *fetcher = m_fetcher;
+            QTimer::singleShot(0, this, [fetcher, name] {
+                fetcher->fetch(name);
+            });
+            return {};
+        }
+
         const QVariant loaded = QTextDocument::loadResource(type, name);
         if (!loaded.isNull())
             m_imageCache->insert(name, loaded);
@@ -80,12 +97,14 @@ protected:
 
 private:
     QHash<QUrl, QVariant> *m_imageCache = nullptr;
+    ImageFetcher *m_fetcher = nullptr;
 };
 } // namespace
 
 MarkdownView::MarkdownView(QWidget *parent)
     : QTextBrowser(parent)
     , m_documentOwner(new QObject(this))
+    , m_imageFetcher(new ImageFetcher(this))
     , m_gifHandler(new GifObjectHandler(nullptr, this))
     , m_checkboxHandler(new CheckboxObjectHandler(this))
     , m_chipHandler(new ChipObjectHandler(this))
@@ -99,15 +118,15 @@ MarkdownView::MarkdownView(QWidget *parent)
 
     // Own documents from the start: the stock document a QTextEdit creates is
     // its child, and a child document is deleted the moment another replaces
-    // it. The ping-pong pair below is owned by m_documentOwner instead.
-    // Own documents from the start: the stock document a QTextEdit creates is
-    // its child, and a child document is deleted the moment another replaces
     // it. The render documents are owned by m_documentOwner instead.
-    auto *first = new PreviewDocument(m_documentOwner, &m_imageCache);
-    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache);
+    auto *first = new PreviewDocument(m_documentOwner, &m_imageCache, m_imageFetcher);
+    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache, m_imageFetcher);
     setDocument(first);
     registerObjectHandlers(document());
     m_gifHandler->setDocument(first);
+
+    connect(m_imageFetcher, &ImageFetcher::ready, this, &MarkdownView::onRemoteImageReady);
+    connect(m_imageFetcher, &ImageFetcher::failed, this, &MarkdownView::onRemoteImageFailed);
 
     m_renderTimer = new QTimer(this);
     m_renderTimer->setSingleShot(true);
@@ -236,6 +255,81 @@ void MarkdownView::setBaseDir(const QString &directory)
     renderNow();
 }
 
+void MarkdownView::setRemoteImagesEnabled(bool enabled)
+{
+    if (m_style.remoteImagesEnabled == enabled)
+        return;
+    m_style.remoteImagesEnabled = enabled;
+    m_imageFetcher->setEnabled(enabled);
+    if (!enabled)
+        m_imageCache.clear(); // don't let a stale download outlive the toggle
+    renderNow();
+}
+
+bool MarkdownView::remoteImagesEnabled() const
+{
+    return m_style.remoteImagesEnabled;
+}
+
+ImageFetcher *MarkdownView::imageFetcher() const
+{
+    return m_imageFetcher;
+}
+
+void MarkdownView::onRemoteImageReady(const QUrl &url, const QImage &image)
+{
+    if (image.isNull())
+        return;
+    m_imageCache.insert(url, image);
+
+    // Show it in place: the resource is stored on the document and the blocks
+    // that hold this image are re-laid out, so the row grows to the image's
+    // size without touching the rest of the document.
+    QTextDocument *doc = document();
+    if (!doc)
+        return;
+    doc->addResource(QTextDocument::ImageResource, url, image);
+    for (QTextBlock block = doc->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            if (QUrl(format.toImageFormat().name()) != url)
+                continue;
+            doc->markContentsDirty(it.fragment().position(), it.fragment().length());
+        }
+    }
+}
+
+void MarkdownView::onRemoteImageFailed(const QUrl &url)
+{
+    // The download will not produce an image: fall back to the alt-text chip
+    // the disabled path would have shown, drawn once into the cache under the
+    // image's own URL so the pending row settles instead of staying empty.
+    QTextDocument *doc = document();
+    if (!doc)
+        return;
+    for (QTextBlock block = doc->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QTextImageFormat imageFormat = format.toImageFormat();
+            if (QUrl(imageFormat.name()) != url)
+                continue;
+            const QString alt = imageFormat.property(MarkdownBuilder::imageAltKey).toString();
+            if (alt.isEmpty())
+                continue;
+            const QImage placeholder = m_chipHandler->renderChip(alt, imageFormat.fontPointSize() > 0 ? imageFormat.fontPointSize() : 11.0);
+            if (placeholder.isNull())
+                continue;
+            m_imageCache.insert(url, placeholder);
+            doc->addResource(QTextDocument::ImageResource, url, placeholder);
+            doc->markContentsDirty(it.fragment().position(), it.fragment().length());
+        }
+    }
+}
+
 void MarkdownView::setMarkdown(const QString &markdown)
 {
     m_source = markdown;
@@ -347,7 +441,7 @@ void MarkdownView::rebuild()
     // open-file render went. QTextEdit installs the page size at the swap, and
     // the remaining layout runs through its own bounded steps.
     m_scratchDocument->deleteLater();
-    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache);
+    m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache, m_imageFetcher);
 
     const bool built = MarkdownBuilder::build(m_scratchDocument, m_source, m_style);
     if (!built) {

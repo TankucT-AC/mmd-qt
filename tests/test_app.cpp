@@ -7,6 +7,7 @@
 #include "editor/MarkdownEditor.h"
 #include "viewer/MarkdownView.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QFile>
@@ -33,6 +34,7 @@ private slots:
     void themeModePersistsAcrossWindows();
     void hugeFileOpensPausedAndQuickly();
     void openingAFileRendersThePreviewWithoutWaiting();
+    void remoteImagesAreOnByDefaultAndPersistAcrossWindows();
 
 private:
     static void typeInto(MarkdownEditor *editor, const QString &text, QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
@@ -310,6 +312,34 @@ void AppTest::hugeFileOpensPausedAndQuickly()
     QVERIFY(!window.editor()->highlightingEnabled());
     // Loading and laying out the source may cost something, but not a freeze.
     QVERIFY2(elapsed < 3000, qPrintable(QStringLiteral("opening took %1 ms").arg(elapsed)));
+}
+
+void AppTest::remoteImagesAreOnByDefaultAndPersistAcrossWindows()
+{
+    QSettings settings;
+    settings.remove(QStringLiteral("view/remoteImages"));
+
+    {
+        MainWindow window;
+        window.show();
+        QAction *toggle = window.findChild<QAction *>(QStringLiteral("toggleRemoteImages"));
+        QVERIFY(toggle);
+        QVERIFY(toggle->isChecked());
+        QVERIFY(window.viewer()->remoteImagesEnabled());
+
+        toggle->trigger(); // turn remote loading off
+        QVERIFY(!window.viewer()->remoteImagesEnabled());
+    }
+    {
+        MainWindow window;
+        window.show();
+        QAction *toggle = window.findChild<QAction *>(QStringLiteral("toggleRemoteImages"));
+        QVERIFY(toggle);
+        QVERIFY(!toggle->isChecked());
+        QVERIFY(!window.viewer()->remoteImagesEnabled());
+    }
+
+    settings.remove(QStringLiteral("view/remoteImages"));
 }
 
 QTEST_MAIN(AppTest)

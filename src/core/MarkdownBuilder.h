@@ -23,6 +23,10 @@ struct RenderStyle {
     // Maximum width of the rendered column; wider panes centre the content,
     // like Zed, instead of stretching text across the whole window.
     int maxContentWidth = 820;
+    // When true, http(s) image references render as images the viewer loads
+    // over the network; when false they fall back to the alt-text chip, which
+    // is also the behaviour for an image whose download failed.
+    bool remoteImagesEnabled = false;
 };
 
 /*
@@ -61,6 +65,9 @@ public:
         chipKindKey,
         mathSourceKey,
         mathDisplayKey,
+        // Alt text of a remote image, kept so a failed download can fall back
+        // to the same chip the disabled path shows.
+        imageAltKey,
         // Source line (0-based) a block was built from; the viewer uses it to
         // send a click in the preview back to the right line in the editor.
         sourceLineKey,

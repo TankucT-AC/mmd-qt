@@ -19,6 +19,7 @@ class CodeHighlighter;
 class CheckboxObjectHandler;
 class ChipObjectHandler;
 class MathObjectHandler;
+class ImageFetcher;
 
 /*
  * Preview pane: renders markdown source into its QTextDocument and keeps the
@@ -53,6 +54,16 @@ public:
     const RenderStyle &renderStyle() const;
 
     void setBaseDir(const QString &directory);
+
+    // Turns remote image loading on or off. Off (the default until the app
+    // wires its setting in) renders remote references as alt-text chips; on
+    // downloads them in the background. Toggling re-renders the document.
+    void setRemoteImagesEnabled(bool enabled);
+    bool remoteImagesEnabled() const;
+
+    // The network fetcher, exposed so the app can configure it (cache
+    // directory, and the private-network escape hatch tests need).
+    ImageFetcher *imageFetcher() const;
 
     // Applies the document-size policy. For a document past the preview limit
     // the pane shows a short explanation instead of the render, so editing
@@ -163,6 +174,8 @@ private:
     void updateHoveredFrame(const QPoint &pos);
     void drawCopyButton(QPainter &painter, const QRect &button, bool copied) const;
     void handleAnchor(const QUrl &url);
+    void onRemoteImageReady(const QUrl &url, const QImage &image);
+    void onRemoteImageFailed(const QUrl &url);
 
     RenderStyle m_style;
     DocumentLimits m_limits;
@@ -180,6 +193,7 @@ private:
     // Decoded images across rebuilds; every render document borrows this one
     // hash, so a picture the reader already saw is never decoded twice.
     QHash<QUrl, QVariant> m_imageCache;
+    ImageFetcher *m_imageFetcher = nullptr;
     GifObjectHandler *m_gifHandler = nullptr;
     CheckboxObjectHandler *m_checkboxHandler = nullptr;
     ChipObjectHandler *m_chipHandler = nullptr;

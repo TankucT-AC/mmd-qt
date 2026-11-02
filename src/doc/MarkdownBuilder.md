@@ -46,6 +46,7 @@ passes (notably `CodeHighlighter`) can find blocks without re-parsing.
 | `PropertyKey::headingLevelKey` | Heading level (1–6) stored on a heading block format. |
 | `PropertyKey::languageKey` | The info-string language of a code block, e.g. `cpp`. |
 | `PropertyKey::gifPathKey` | Filesystem path of an animated image stored on its object char format. |
+| `PropertyKey::imageAltKey` | Alt text of a remote image, kept on the image format so a failed download can fall back to its chip. |
 | `PropertyKey::sourceLineKey` | Zero-based source line a block was built from; what click-to-source resolves. |
 
 | Constant | Value | Description |
@@ -61,6 +62,13 @@ cleared first and filled in place. Returns `false` only when the parser itself
 fails; it does not throw and does not touch any GUI state. The target needs no
 object handlers and no layout work to be attached — the view builds into a
 detached document and swaps it in once the text is complete.
+
+Remote `http(s)` references are handled according to `RenderStyle`: with
+`remoteImagesEnabled` set the builder emits a `QTextImageFormat` named by the
+URL (plus the alt text under `imageAltKey`) and the viewer downloads it; with
+the flag clear — or for a reference that is not an image the viewer can load —
+the alt text becomes an inline chip, exactly as before. The builder itself
+never touches the network.
 
 ## 11. Ownership and Lifecycle
 

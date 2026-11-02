@@ -88,11 +88,14 @@ ImageFetcher::ImageFetcher(QObject *parent)
 
 ImageFetcher::~ImageFetcher()
 {
+    // Detach our callbacks before tearing replies down: abort() reports an
+    // OperationCanceledError synchronously, and letting that reach fail()
+    // would emit signals into a half-destroyed owner.
     const auto requests = m_requests;
     m_requests.clear();
     for (Request *request : requests) {
         if (request->reply) {
-            request->reply->disconnect(request);
+            request->reply->disconnect(this);
             request->reply->abort();
         }
         delete request;

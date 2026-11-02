@@ -65,6 +65,7 @@ private:
     void persistThemeSettings();
     void restorePaneSettings();
     void persistPaneSettings();
+    void restoreRemoteImageSettings();
     void restoreFontSettings();
     void chooseFonts();
     void releaseOutlinePin();
@@ -109,6 +110,7 @@ private:
     QLabel *m_statusRender = nullptr;
     QAction *m_toggleEditor = nullptr;
     QAction *m_toggleViewer = nullptr;
+    QAction *m_toggleRemoteImages = nullptr;
     QAction *m_customThemeAction = nullptr;
     QHash<int, QAction *> m_themeModeActions;
 };

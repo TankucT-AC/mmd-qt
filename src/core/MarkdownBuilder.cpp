@@ -1214,6 +1214,26 @@ void Builder::insertImageElement(const QString &source, const QString &alt, int 
     if (alt.isEmpty())
         stampCurrentBlock(consumeSource(source));
 
+    // Remote references are downloaded by the viewer, not read from disk. The
+    // builder only records the URL; the fetch and its guard rails live in
+    // ImageFetcher. With remote images off -- or when the download fails -- the
+    // alt-text chip carries the meaning instead.
+    if (ImageResolver::isRemote(source)) {
+        if (m_style.remoteImagesEnabled) {
+            QTextImageFormat format;
+            format.setName(source);
+            format.setProperty(MarkdownBuilder::imageAltKey, alt);
+            if (htmlWidth > 0)
+                format.setWidth((std::min)(htmlWidth, m_style.maxImageWidth));
+            m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+            return;
+        }
+        if (!alt.isEmpty()) {
+            insertChip(alt, MarkdownBuilder::ChipKind::Badge);
+            return;
+        }
+    }
+
     // A remote image (e.g. a shields.io badge) is not fetched: show its alt
     // text as a chip so the document stays readable offline.
     if (path.isEmpty() && !alt.isEmpty()) {

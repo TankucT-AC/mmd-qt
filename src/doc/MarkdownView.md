@@ -18,6 +18,16 @@ Decoded images live in a cache owned by the view, so no render re-decodes what a
 earlier one already showed; the object handlers re-register on the layout of
 whatever document is showing.
 
+Remote `http(s)` images are downloaded in the background by an owned
+`core/ImageFetcher`. `PreviewDocument::loadResource` returns an empty resource
+for a remote URL and schedules the fetch for the next event-loop turn; when the
+image arrives the view stores it in the shared cache, installs it as the
+document resource and re-lays out just the blocks that hold it. A download that
+fails is replaced by a chip carrying the image's alt text, drawn once and cached
+under the same URL so the row settles instead of staying an empty gap. With
+`setRemoteImagesEnabled(false)` the builder never emits remote image objects and
+the alt-text chip is used from the start.
+
 It also answers click-to-source: the builder stamps every block with the source
 line it came from, and a plain click reports that line so the editor can put its
 caret there. The two panes scroll independently on purpose: rendered and source
