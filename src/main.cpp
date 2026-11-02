@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "app/MainWindow.h"
+#include "core/MathRenderer.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QIcon>
+#include <QTimer>
 
 // Multi-size app icon from the bundled resources, so the window/taskbar gets a
 // crisp mark at every size instead of one scaled bitmap.
@@ -43,8 +45,16 @@ int main(int argc, char *argv[])
     window.show();
 
     const QStringList arguments = parser.positionalArguments();
-    if (!arguments.isEmpty())
+    if (!arguments.isEmpty()) {
         window.openFile(arguments.first());
+    } else {
+        // Nothing to render yet. Bring the formula renderer's one-time font
+        // table initialisation up behind the first frame, so the first file
+        // the reader opens does not pay for it mid-render.
+        QTimer::singleShot(0, &window, [] {
+            MathRenderer::instance().isAvailable();
+        });
+    }
 
     return app.exec();
 }

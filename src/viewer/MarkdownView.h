@@ -7,7 +7,9 @@
 #include "core/FindState.h"
 #include "core/MarkdownBuilder.h"
 
+#include <QHash>
 #include <QTextBrowser>
+#include <QUrl>
 
 #include <memory>
 
@@ -28,8 +30,14 @@ class MathObjectHandler;
  * The scroll position is preserved across a rebuild by anchoring on the block
  * currently at the top of the viewport.
  *
- * Rebuilding the document in place (rather than swapping in a new
- * QTextDocument) keeps the QTextObjectInterface handler registration valid.
+ * Each rebuild builds into a freshly created, fully detached document and
+ * swaps it in atomically. Building into the document the widget is showing
+ * makes QTextDocumentLayout relayout between cursor insertions, and a document
+ * that has already been shown keeps that eager state even after it is swapped
+ * out -- a virgin build document plus an atomic swap keeps the whole rebuild
+ * off the layout machinery. The object handlers re-register on the layout of
+ * whatever document is showing; decoded images live in a cache owned by the
+ * view, so no render re-decodes what an earlier one already showed.
  */
 class MarkdownView : public QTextBrowser
 {
@@ -146,6 +154,7 @@ private:
     void rebuild();
     void buildPlaceholder();
     void applyFindSelections();
+    void registerObjectHandlers();
     void updateVisibleHeading();
     int effectiveRenderInterval() const;
     void updateContentMargins();
@@ -157,6 +166,18 @@ private:
     DocumentLimits m_limits;
     QString m_source;
     QTimer *m_renderTimer = nullptr;
+    // The two documents take turns being shown: one is on screen while the
+    // other is being built. Both are parented to m_documentOwner, never to the
+    // view itself — a document parented to a QTextEdit is deleted when another
+    // one replaces it.
+    QObject *m_documentOwner = nullptr;
+    // The document slot the next rebuild fills with a fresh document; the one
+    // parked there is the previously shown document, kept alive until then so
+    // anything still reading it survives the swap.
+    QTextDocument *m_scratchDocument = nullptr;
+    // Decoded images across rebuilds; every render document borrows this one
+    // hash, so a picture the reader already saw is never decoded twice.
+    QHash<QUrl, QVariant> m_imageCache;
     GifObjectHandler *m_gifHandler = nullptr;
     CheckboxObjectHandler *m_checkboxHandler = nullptr;
     ChipObjectHandler *m_chipHandler = nullptr;

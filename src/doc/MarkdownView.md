@@ -9,8 +9,14 @@ a burst of keystrokes costs one render rather than one per key. The scroll
 position is preserved across a rebuild by anchoring on the block currently at the
 top of the viewport.
 
-The document is rebuilt in place rather than swapped, which keeps the animated
-image handler registration valid.
+Each rebuild builds into a freshly created, fully detached document and swaps it
+in atomically. Building into the document the widget is showing makes
+`QTextDocumentLayout` relayout between cursor insertions, and a document that has
+already been shown keeps that eager state even after it is swapped out — a virgin
+build document plus an atomic swap keeps the rebuild off the layout machinery.
+Decoded images live in a cache owned by the view, so no render re-decodes what an
+earlier one already showed; the object handlers re-register on the layout of
+whatever document is showing.
 
 It also answers click-to-source: the builder stamps every block with the source
 line it came from, and a plain click reports that line so the editor can put its
@@ -26,8 +32,9 @@ the reader.
 ## 3. Class Hierarchy and Role
 
 Derives from `QTextBrowser` (a read-only `QTextEdit` with hyperlink navigation).
-Hyperlinks open externally. The GIF `QTextObjectInterface` handler is registered
-on the document layout at construction.
+Hyperlinks open externally. The `QTextObjectInterface` handlers (animated image,
+checkbox, chip, formula) are (re-)registered on the layout of whatever document
+is showing after every rebuild.
 
 ## 7. Signals
 

@@ -57,10 +57,10 @@ passes (notably `CodeHighlighter`) can find blocks without re-parsing.
 #### bool build(QTextDocument *target, const QString &markdown, const RenderStyle &style)
 
 Parses `markdown` and rebuilds `target` as a rendered document. The document is
-cleared first and filled in place, so the instance identity is preserved — this
-is what keeps the animated-image handler registration valid across re-renders.
-Returns `false` only when the parser itself fails; it does not throw and does
-not touch any GUI state.
+cleared first and filled in place. Returns `false` only when the parser itself
+fails; it does not throw and does not touch any GUI state. The target needs no
+object handlers and no layout work to be attached — the view builds into a
+detached document and swaps it in once the text is complete.
 
 ## 11. Ownership and Lifecycle
 

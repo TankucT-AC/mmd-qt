@@ -6,14 +6,18 @@
 #include "core/DocumentLimits.h"
 #include "core/MarkdownBuilder.h"
 #include "core/Theme.h"
+#include "viewer/GifObjectHandler.h"
 #include "viewer/MarkdownView.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QClipboard>
 #include <QColor>
+#include <QFile>
 #include <QGuiApplication>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QSet>
+#include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextBrowser>
 
@@ -40,6 +44,9 @@ private slots:
     void inlineMathBecomesADrawnObject();
     void sourceLineTracksTheBlock();
     void clickingThePreviewReportsTheSourceLine();
+    void documentPointerChangesAcrossRebuilds();
+    void handlersStayRegisteredAcrossManyRebuilds();
+    void gifAnimationsSurviveRebuilds();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -363,6 +370,86 @@ void ViewTest::clickingThePreviewReportsTheSourceLine()
 
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.at(0).at(0).toInt(), 2);
+}
+
+// The preview builds into a document that no widget watches, then swaps it in
+// atomically: building into the live document interleaves QTextDocumentLayout
+// work with every cursor insertion, which is where whole open-file delays came
+// from. A fresh build lands in a different document object each time.
+void ViewTest::documentPointerChangesAcrossRebuilds()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+
+    view.setMarkdown(QStringLiteral("# first\n\nsome text\n"));
+    const QTextDocument *first = view.document();
+    QVERIFY(view.document()->firstBlock().isValid());
+    QVERIFY(view.document()->toPlainText().contains(QLatin1String("some text")));
+
+    // Each render swaps in the other document of the pair: never the one that
+    // is showing right now.
+    view.setMarkdown(QStringLiteral("# second\n\nother text\n"));
+    QVERIFY(view.document() != first);
+    QVERIFY(view.document()->toPlainText().contains(QLatin1String("other text")));
+    QVERIFY(!view.document()->toPlainText().contains(QLatin1String("some text")));
+
+    // The third render swaps back -- and must still hand the view a fully
+    // built document, not an empty one.
+    const QTextDocument *second = view.document();
+    view.setMarkdown(QStringLiteral("# third\n\nmore text\n"));
+    QVERIFY(view.document() != second);
+    QVERIFY(view.document()->toPlainText().contains(QLatin1String("more text")));
+}
+
+void ViewTest::handlersStayRegisteredAcrossManyRebuilds()
+{
+    MarkdownView view;
+    view.setRenderInterval(0);
+
+    const QVector<int> objectTypes = {
+        MarkdownBuilder::mathObjectType,
+        MarkdownBuilder::checkboxObjectType,
+        MarkdownBuilder::chipObjectType,
+        MarkdownBuilder::gifObjectType,
+    };
+
+    for (int round = 0; round < 6; ++round) {
+        view.setMarkdown(QStringLiteral("# round %1\n\n$x^2$ and - [ ] a task\n\n![badge](https://example.com/badge.svg)\n").arg(round));
+        QAbstractTextDocumentLayout *layout = view.document()->documentLayout();
+        for (const int type : objectTypes)
+            QVERIFY2(layout->handlerForObject(type) != nullptr, qPrintable(QStringLiteral("round %1: handler for type %2 missing").arg(round).arg(type)));
+    }
+}
+
+static const char *kAnimatedGifBase64 =
+    "R0lGODlhBAAEAIEAAP8AAAAAAAAAAAAAACH/"
+    "C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAABAAEAAAICQABCBxIsCCAgAAh+QQBCgABACwAAAAABAAEAIEAAP8AAAAAAAAAAAAICQABCBxIsCCAgAA7";
+
+// The movie objects live with the view, not with any single document: swapping
+// documents on every render must not stop the animation of a GIF that is still
+// on screen, and the handler must repaint into the document now showing.
+void ViewTest::gifAnimationsSurviveRebuilds()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QFile gif(dir.filePath(QStringLiteral("anim.gif")));
+    QVERIFY(gif.open(QIODevice::WriteOnly));
+    gif.write(QByteArray::fromBase64(kAnimatedGifBase64));
+    gif.close();
+
+    MarkdownView view;
+    view.resize(400, 300);
+    view.show();
+    view.setRenderInterval(0);
+    view.setBaseDir(dir.path());
+    view.setMarkdown(QStringLiteral("# gif\n\n![anim](anim.gif)\n"));
+
+    auto *handler = view.findChild<GifObjectHandler *>();
+    QVERIFY(handler);
+    QTRY_VERIFY_WITH_TIMEOUT(handler->hasRunningAnimations(), 3000);
+
+    view.setMarkdown(QStringLiteral("# gif\n\n![anim](anim.gif)\n"));
+    QTRY_VERIFY_WITH_TIMEOUT(handler->hasRunningAnimations(), 3000);
 }
 
 QTEST_MAIN(ViewTest)
