@@ -151,7 +151,7 @@ GUI-thread only. Re-rendering touches the document and the scrollbar.
 ## 14. Inter-Class Interactions
 
 - `MainWindow` connects the editor's `textChanged` to `setMarkdown`, calls `renderNow()` on splitter movement, and calls `setRenderStyle` on theme changes.
-- Calls `MarkdownBuilder::build` and `CodeHighlighter::highlight` on each rebuild. Before the build it resolves the pane's live column width into `RenderStyle::contentWidth`, which the builder uses for percentage image widths.
+- Calls `MarkdownBuilder::build` and `CodeHighlighter::highlight` on each rebuild. Before the build it resolves the pane's live column width into `RenderStyle::contentWidth`, which the builder uses for percentage image widths. After the build it pre-scales fetched remote images (`fitRemoteImages`) to the size the document draws them at, so the text layout paints them 1:1 and sharp.
 
 ## 16. Usage Example
 

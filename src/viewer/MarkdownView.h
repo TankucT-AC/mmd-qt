@@ -179,6 +179,8 @@ private:
     void handleAnchor(const QUrl &url);
     void onRemoteImageReady(const QUrl &url, const QImage &image);
     void onRemoteImageFailed(const QUrl &url);
+    // Pre-scale fetched remote images to the size the document draws them at.
+    void fitRemoteImages(QTextDocument *document);
 
     RenderStyle m_style;
     DocumentLimits m_limits;

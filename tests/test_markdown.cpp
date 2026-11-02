@@ -7,6 +7,7 @@
 #include "core/MarkdownBuilder.h"
 #include "core/Theme.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QDir>
 #include <QFile>
 #include <QFontInfo>
@@ -45,6 +46,8 @@ private slots:
     void htmlPercentWidthOnRemoteImageIsSetBeforeLoad();
     void htmlWidthWithoutDigitsIsIgnored();
     void htmlPercentWidthFollowsTheLiveColumn();
+    void htmlBlockImageIsNotStretchedToTheLineHeight();
+    void standaloneBreakDoesNotMergeIntoTheNextImage();
     void htmlImageInsideCenteredDivIsCentered();
     void htmlParagraphAlignCentersMarkdownBlocks();
     void htmlTableCellsRenderTheirMarkdown();
@@ -911,6 +914,10 @@ void MarkdownTest::htmlImageHonoursWidthAttribute()
             const QTextImageFormat imageFormat = format.toImageFormat();
             QCOMPARE(int(imageFormat.width()), 60);
             QCOMPARE(int(imageFormat.height()), 12); // 200x40 scaled to width 60
+            // Pre-scaled smoothly by the builder, so the paint is 1:1.
+            const QVariant resource = document.resource(QTextDocument::ImageResource, QUrl(imageFormat.name()));
+            QVERIFY(!resource.isNull());
+            QCOMPARE(resource.value<QImage>().size(), QSize(60, 12));
             found = true;
         }
     }
@@ -1047,6 +1054,59 @@ void MarkdownTest::htmlPercentWidthFollowsTheLiveColumn()
             QCOMPARE(int(it.fragment().charFormat().toImageFormat().width()), 60);
         }
     }
+}
+
+void MarkdownTest::htmlBlockImageIsNotStretchedToTheLineHeight()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    QTextDocument document;
+    render(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"), dir.path());
+    const int column = RenderStyle().maxContentWidth;
+    document.setTextWidth(column);
+
+    QTextBlock block;
+    for (QTextBlock candidate = document.firstBlock(); candidate.isValid(); candidate = candidate.next()) {
+        for (QTextBlock::Iterator it = candidate.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().isImageFormat())
+                block = candidate;
+        }
+    }
+    QVERIFY(block.isValid());
+    // The prose line height (122%) must not stretch an image line: the block is
+    // exactly the image's height, not 22% taller (which left a gap below it).
+    const QRectF rect = document.documentLayout()->blockBoundingRect(block);
+    QCOMPARE(qRound(rect.height()), qRound(40.0 * column / 200.0));
+}
+
+void MarkdownTest::standaloneBreakDoesNotMergeIntoTheNextImage()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    QTextDocument document;
+    render(&document, QStringLiteral("<br>\n\n<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"), dir.path());
+
+    QTextBlock imageBlock;
+    for (QTextBlock candidate = document.firstBlock(); candidate.isValid(); candidate = candidate.next()) {
+        for (QTextBlock::Iterator it = candidate.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().isImageFormat())
+                imageBlock = candidate;
+        }
+    }
+    QVERIFY(imageBlock.isValid());
+    // The <br> stays in its own block; it must not drag a line separator or a
+    // stray space into the image block (which added an empty line above the
+    // image and pushed a full-width image past the column).
+    QVERIFY(!imageBlock.text().contains(QChar(0x2028)));
+    QVERIFY(imageBlock.text().startsWith(QChar(QChar::ObjectReplacementCharacter)));
 }
 
 void MarkdownTest::readmeRendersWithoutLiteralHtml()

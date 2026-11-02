@@ -123,6 +123,13 @@ markdown pass:
   when drawing, so the width is resolved to pixels at build time; the view
   re-renders when the column changes, so a hero keeps fitting an open editor
   pane instead of overflowing it.
+- A scaled raster image is resampled *smoothly* once and handed over as a
+  resource (`QImage::scaled(..., Qt::SmoothTransformation)`); the text layout
+  paints a scaled image without interpolation, so a big screenshot looked rough
+  left to it.
+- An HTML image block uses a plain block format, not the paragraph one. The
+  122% line height meant for prose stretched an image's line by a fifth of the
+  image, so every hero left a visible gap below it.
 
 ## 16. Usage Example
 

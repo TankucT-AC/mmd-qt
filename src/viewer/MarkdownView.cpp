@@ -48,6 +48,24 @@ constexpr int kDefaultRenderIntervalMs = 40;
 // consistent: the section just scrolled to is always the one highlighted.
 constexpr int kHeadingTopGap = 8;
 
+// The text layout paints a scaled image without interpolation, so a large remote
+// screenshot looks rough. Pre-scale it to the size the document draws it at and
+// tag the ratio, so it is painted 1:1. A width of zero keeps the natural size.
+QImage fitToWidth(const QImage &image, int logicalWidth, qreal ratio)
+{
+    if (image.isNull() || logicalWidth <= 0)
+        return image;
+    const qreal imageRatio = image.devicePixelRatio();
+    const qreal logical = image.width() / (imageRatio > 0 ? imageRatio : 1.0);
+    if (qAbs(logical - logicalWidth) < 1.0)
+        return image;
+    QImage scaled = image.scaledToWidth(qRound(logicalWidth * ratio), Qt::SmoothTransformation);
+    if (scaled.isNull())
+        return image;
+    scaled.setDevicePixelRatio(ratio);
+    return scaled;
+}
+
 /*
  * The document the preview renders into. Its one job is keeping decoded images
  * across rebuilds: QTextDocument throws its resource cache away whenever the
@@ -310,15 +328,17 @@ void MarkdownView::onRemoteImageReady(const QUrl &url, const QImage &image)
 {
     if (image.isNull())
         return;
-    m_imageCache.insert(url, image);
+    m_imageCache.insert(url, image); // the natural image, for later widths
 
     // Show it in place: the resource is stored on the document and the blocks
     // that hold this image are re-laid out, so the row grows to the image's
-    // size without touching the rest of the document.
+    // size without touching the rest of the document. Pre-scale to the drawn
+    // width so the paint is 1:1 and stays sharp.
     QTextDocument *doc = document();
     if (!doc)
         return;
-    doc->addResource(QTextDocument::ImageResource, url, image);
+    const qreal ratio = devicePixelRatioF();
+    bool placed = false;
     for (QTextBlock block = doc->firstBlock(); block.isValid(); block = block.next()) {
         for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
             const QTextCharFormat format = it.fragment().charFormat();
@@ -326,7 +346,35 @@ void MarkdownView::onRemoteImageReady(const QUrl &url, const QImage &image)
                 continue;
             if (QUrl(format.toImageFormat().name()) != url)
                 continue;
+            doc->addResource(QTextDocument::ImageResource, url, fitToWidth(image, int(format.toImageFormat().width()), ratio));
             doc->markContentsDirty(it.fragment().position(), it.fragment().length());
+            placed = true;
+        }
+    }
+    if (!placed)
+        doc->addResource(QTextDocument::ImageResource, url, image);
+}
+
+// Give every already-fetched remote image the size this render draws it at, so
+// a rebuild (a resize, a theme switch) keeps it sharp instead of re-fetching.
+void MarkdownView::fitRemoteImages(QTextDocument *doc)
+{
+    if (!doc)
+        return;
+    const qreal ratio = devicePixelRatioF();
+    for (QTextBlock block = doc->firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QUrl url(format.toImageFormat().name());
+            const auto cached = m_imageCache.constFind(url);
+            if (cached == m_imageCache.constEnd())
+                continue;
+            const QImage image = cached->value<QImage>();
+            if (image.isNull())
+                continue;
+            doc->addResource(QTextDocument::ImageResource, url, fitToWidth(image, int(format.toImageFormat().width()), ratio));
         }
     }
 }
@@ -486,6 +534,7 @@ void MarkdownView::rebuild()
         m_lastRenderMs = int(timer.elapsed());
         return;
     }
+    fitRemoteImages(m_scratchDocument);
     m_codeHighlighter->highlight(m_scratchDocument);
 
     // Register the object handlers now -- after build and highlight, but

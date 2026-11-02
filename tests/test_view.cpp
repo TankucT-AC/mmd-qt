@@ -12,6 +12,7 @@
 #include "viewer/MarkdownView.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QBuffer>
 #include <QClipboard>
 #include <QColor>
 #include <QFile>
@@ -58,6 +59,7 @@ private slots:
     void failedRemoteImageFallsBackToTheAltChip();
     void remoteImageAppearsAfterDownload();
     void htmlPercentImageFitsThePaneAndReshrinks();
+    void remoteImageIsPreScaledToTheDrawnWidth();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -675,6 +677,40 @@ void ViewTest::remoteImageAppearsAfterDownload()
     const QImage image = view.document()->resource(QTextDocument::ImageResource, url).value<QImage>();
     QCOMPARE(image.width(), 1);
     QCOMPARE(image.height(), 1);
+}
+
+void ViewTest::remoteImageIsPreScaledToTheDrawnWidth()
+{
+    TestHttpServer server;
+    QVERIFY(server.isListening());
+
+    QImage source(40, 20, QImage::Format_ARGB32);
+    source.fill(Qt::red);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    QVERIFY(source.save(&buffer, "PNG"));
+    buffer.close();
+    server.setRoute(QStringLiteral("/pic.png"), {200, {{"Content-Type", "image/png"}}, bytes, true});
+
+    QTemporaryDir cache;
+    MarkdownView view;
+    view.resize(400, 300);
+    view.show();
+    view.setRenderInterval(0);
+    view.setRemoteImagesEnabled(true);
+    view.imageFetcher()->setCacheDirectory(cache.path());
+    view.imageFetcher()->setPrivateNetworkAllowed(true);
+
+    const QUrl url = server.url(QStringLiteral("/pic.png"));
+    view.setMarkdown(QStringLiteral("<img src=\"%1\" alt=\"p\" width=\"20\">\n").arg(url.toString()));
+    view.renderNow();
+
+    QTRY_VERIFY(!view.document()->resource(QTextDocument::ImageResource, url).isNull());
+    const QImage image = view.document()->resource(QTextDocument::ImageResource, url).value<QImage>();
+    // Pre-scaled to the drawn width (20 logical), not left at the 40px source,
+    // so the text layout paints it 1:1 instead of resampling it.
+    QCOMPARE(image.deviceIndependentSize().toSize(), QSize(20, 10));
 }
 
 QTEST_MAIN(ViewTest)

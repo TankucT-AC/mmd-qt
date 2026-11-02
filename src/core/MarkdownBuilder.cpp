@@ -1324,6 +1324,31 @@ void Builder::insertImageElement(const QString &source, const QString &alt, Html
         }
     }
 
+    // A raster image that is scaled (a big screenshot, a logo): smooth it once
+    // here and hand it over as a resource, so the document paints it 1:1.
+    // Left to the text layout, a scaled image is resampled without
+    // interpolation and looks rough.
+    if (!isSvg && display.isValid() && display != natural) {
+        QImage raster(path);
+        if (!raster.isNull()) {
+            const qreal ratio = devicePixelRatio();
+            const QSize pixelSize = (QSizeF(display) * ratio).toSize();
+            QImage scaled = raster.scaled(pixelSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            if (!scaled.isNull()) {
+                scaled.setDevicePixelRatio(ratio);
+                const QString name = QStringLiteral("mmd-res-") + QString::number(qHash(path), 16) + QLatin1Char('-') + QString::number(display.width());
+                m_document->addResource(QTextDocument::ImageResource, QUrl(name), scaled);
+
+                QTextImageFormat format;
+                format.setName(name);
+                format.setWidth(display.width());
+                format.setHeight(display.height());
+                m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+                return;
+            }
+        }
+    }
+
     QTextImageFormat format;
     format.setName(path);
     if (display.isValid() && display != natural) {
@@ -1484,6 +1509,11 @@ void Builder::applyInlineHtml(const QString &html, bool openBlock)
                 m_htmlTagStack.append(name);
             } else if (name == QLatin1String("br")) {
                 m_cursor.insertText(QString(QChar(0x2028)), composeCharFormat());
+                // A hard break ends the HTML run: the next inline HTML block
+                // starts its own block. Without this a standalone <br> merged
+                // with the hero image that followed, adding an empty line and a
+                // stray space that pushed the full-width image past the column.
+                m_htmlInlineContinued = false;
             } else if (name == QLatin1String("img")) {
                 insertImageElement(htmlAttribute(token, QStringLiteral("src")),
                                    htmlAttribute(token, QStringLiteral("alt")),
@@ -1546,7 +1576,12 @@ void Builder::insertSummary(const QString &html)
 // lands centred.
 void Builder::startHtmlBlock()
 {
-    QTextBlockFormat format = paragraphFormat();
+    // An HTML block is usually an image or a row of badges. The paragraph's
+    // 122% line height is meant for prose; applied to an image line it stretches
+    // the line by a fifth of the image, leaving a visible gap below it (a
+    // 231px banner advanced 281px). A plain block keeps the image at its size.
+    QTextBlockFormat format;
+    format.setBottomMargin(3);
     if (!m_openHtmlBlocks.isEmpty()) {
         const Qt::Alignment alignment = m_openHtmlBlocks.last().second;
         if (alignment != Qt::Alignment())
