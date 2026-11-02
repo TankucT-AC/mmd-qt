@@ -44,6 +44,7 @@ private slots:
     void htmlPercentWidthFillsTheContentColumn();
     void htmlPercentWidthOnRemoteImageIsSetBeforeLoad();
     void htmlWidthWithoutDigitsIsIgnored();
+    void htmlPercentWidthFollowsTheLiveColumn();
     void htmlImageInsideCenteredDivIsCentered();
     void htmlParagraphAlignCentersMarkdownBlocks();
     void htmlTableCellsRenderTheirMarkdown();
@@ -1001,6 +1002,49 @@ void MarkdownTest::htmlWidthWithoutDigitsIsIgnored()
                     continue;
                 QCOMPARE(int(format.toImageFormat().width()), 0);
             }
+        }
+    }
+}
+
+void MarkdownTest::htmlPercentWidthFollowsTheLiveColumn()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    // A narrow pane (the editor is open, the window is small) supplies the live
+    // column; the percentage follows it so a hero does not overflow.
+    RenderStyle style;
+    style.theme = ThemeDefinition::light();
+    style.baseDir = dir.path();
+    style.maxContentWidth = 820;
+    style.contentWidth = 640;
+
+    QTextDocument document;
+    QVERIFY(MarkdownBuilder::build(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"), style));
+
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid() && !found; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (!it.fragment().charFormat().isImageFormat())
+                continue;
+            QCOMPARE(int(it.fragment().charFormat().toImageFormat().width()), 640);
+            found = true;
+        }
+    }
+    QVERIFY(found);
+
+    // An absolute width is unaffected by the column.
+    QTextDocument fixed;
+    style.contentWidth = 640;
+    QVERIFY(MarkdownBuilder::build(&fixed, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"60\">\n"), style));
+    for (QTextBlock block = fixed.firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (!it.fragment().charFormat().isImageFormat())
+                continue;
+            QCOMPARE(int(it.fragment().charFormat().toImageFormat().width()), 60);
         }
     }
 }

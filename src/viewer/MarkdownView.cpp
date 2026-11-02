@@ -185,6 +185,13 @@ void MarkdownView::resizeEvent(QResizeEvent *event)
     // next layout pass, so defer it to the event loop.
     QTimer::singleShot(0, this, [this] {
         updateContentMargins();
+        // A narrower pane (an open editor, a smaller window) must re-render so
+        // percentage image widths shrink instead of running off the edge.
+        const int column = contentColumnWidth();
+        if (column != m_lastColumnWidth) {
+            m_lastColumnWidth = column;
+            scheduleRerender();
+        }
     });
 
     // Moving the window to a screen with a different scale changes the ratio
@@ -254,6 +261,15 @@ void MarkdownView::updateContentMargins()
 
     const int margin = (std::max)(0, (available - m_style.maxContentWidth) / 2);
     setViewportMargins(margin, 0, margin, 0);
+}
+
+int MarkdownView::contentColumnWidth() const
+{
+    int available = width();
+    if (const QScrollBar *bar = verticalScrollBar(); bar && bar->isVisible())
+        available -= bar->width();
+    available -= 2 * frameWidth();
+    return (std::min)((std::max)(available, 0), m_style.maxContentWidth);
 }
 
 const RenderStyle &MarkdownView::renderStyle() const
@@ -456,6 +472,11 @@ void MarkdownView::rebuild()
     // the remaining layout runs through its own bounded steps.
     m_scratchDocument->deleteLater();
     m_scratchDocument = new PreviewDocument(m_documentOwner, &m_imageCache, m_imageFetcher);
+
+    // Resolve percentage widths against the column the pane actually has right
+    // now, so a width="100%" hero fits it instead of overflowing.
+    m_style.contentWidth = contentColumnWidth();
+    m_lastColumnWidth = m_style.contentWidth;
 
     const bool built = MarkdownBuilder::build(m_scratchDocument, m_source, m_style);
     if (!built) {

@@ -1226,12 +1226,16 @@ void Builder::insertImageElement(const QString &source, const QString &alt, Html
     const QString path = ImageResolver::resolve(source, m_style.baseDir);
 
     // An absolute width is capped by the image bound; a percentage asks for the
-    // text column and is deliberately allowed past it, like a GitHub hero.
+    // text column and is deliberately allowed past it, like a GitHub hero. The
+    // column is the one the view actually has right now, falling back to the
+    // cap when no live width was supplied.
     int desiredWidth = 0;
-    if (width.percent > 0)
-        desiredWidth = qRound(width.percent / 100.0 * m_style.maxContentWidth);
-    else if (width.pixels > 0)
+    if (width.percent > 0) {
+        const int column = m_style.contentWidth > 0 ? m_style.contentWidth : m_style.maxContentWidth;
+        desiredWidth = qRound(width.percent / 100.0 * column);
+    } else if (width.pixels > 0) {
         desiredWidth = (std::min)(width.pixels, m_style.maxImageWidth);
+    }
 
     // A span opens the block before its text arrives, so a block whose only
     // content is an image with no alt text still has no line. The image's own

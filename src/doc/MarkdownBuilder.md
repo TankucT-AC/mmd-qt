@@ -117,10 +117,12 @@ markdown pass:
 - Image widths come from the HTML `width` attribute and are parsed apart
   (`parseHtmlLength`): a bare number is pixels, capped to
   `RenderStyle::maxImageWidth`, while a percentage is a fraction of the text
-  column (`RenderStyle::maxContentWidth`). Reading `"100%"` as the digits `"100"`
-  used to draw a full-width banner at 100 px; it now resolves to the column.
-  Qt 6.12 ignores `QTextImageFormat::maximumWidth` when drawing, so the width is
-  resolved to pixels at build time rather than left as a live percentage.
+  column the pane currently has (`RenderStyle::contentWidth`, falling back to
+  `maxContentWidth`). Reading `"100%"` as the digits `"100"` used to draw a
+  full-width banner at 100 px. Qt 6.12 ignores `QTextImageFormat::maximumWidth`
+  when drawing, so the width is resolved to pixels at build time; the view
+  re-renders when the column changes, so a hero keeps fitting an open editor
+  pane instead of overflowing it.
 
 ## 16. Usage Example
 

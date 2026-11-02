@@ -57,6 +57,7 @@ private slots:
     void remoteImagesEnabledInsertTheImageObject();
     void failedRemoteImageFallsBackToTheAltChip();
     void remoteImageAppearsAfterDownload();
+    void htmlPercentImageFitsThePaneAndReshrinks();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -213,6 +214,44 @@ void ViewTest::contentIsCappedByMaxWidth()
     // The rendered column must not stretch across the whole window; give the
     // layout a chance to apply the margins.
     QTRY_VERIFY_WITH_TIMEOUT(view.document()->textWidth() <= view.renderStyle().maxContentWidth + 4, 3000);
+}
+
+void ViewTest::htmlPercentImageFitsThePaneAndReshrinks()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QFile png(dir.filePath(QStringLiteral("pic.png")));
+    QVERIFY(png.open(QIODevice::WriteOnly));
+    png.write(QByteArray::fromBase64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="));
+    png.close();
+
+    MarkdownView view;
+    view.resize(900, 600);
+    view.show();
+    view.setRenderInterval(0);
+    view.setBaseDir(dir.path());
+    view.setMarkdown(QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"));
+
+    const auto imageWidth = [&view] {
+        for (QTextBlock block = view.document()->firstBlock(); block.isValid(); block = block.next())
+            for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it)
+                if (it.fragment().charFormat().isImageFormat())
+                    return int(it.fragment().charFormat().toImageFormat().width());
+        return 0;
+    };
+
+    // width="100%" must resolve to the pane's column, not the column *cap*.
+    QTRY_VERIFY(view.document()->textWidth() > 0);
+    QTRY_VERIFY(imageWidth() > 0);
+    const int wide = imageWidth();
+    QVERIFY2(wide <= int(view.document()->textWidth()) + 4,
+             qPrintable(QStringLiteral("image %1 wider than column %2").arg(wide).arg(view.document()->textWidth())));
+    QVERIFY(wide > 400); // a full-width hero, not the old 100 px
+
+    // A narrower pane (like an open editor) must re-render so the image fits.
+    view.resize(500, 600);
+    QTRY_VERIFY_WITH_TIMEOUT(imageWidth() > 0 && imageWidth() < wide, 3000);
+    QVERIFY(imageWidth() <= int(view.document()->textWidth()) + 4);
 }
 
 void ViewTest::codeFramesAreFoundAfterRender()

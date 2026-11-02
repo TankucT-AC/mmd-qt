@@ -171,6 +171,9 @@ private:
     void updateVisibleHeading();
     int effectiveRenderInterval() const;
     void updateContentMargins();
+    // The text column the pane currently shows, in pixels: the live width that
+    // percentage image widths are resolved against.
+    int contentColumnWidth() const;
     void updateHoveredFrame(const QPoint &pos);
     void drawCopyButton(QPainter &painter, const QRect &button, bool copied) const;
     void handleAnchor(const QUrl &url);
@@ -196,6 +199,9 @@ private:
     ImageFetcher *m_imageFetcher = nullptr;
     // The screen ratio the current remote-image rasters were produced at.
     qreal m_lastDevicePixelRatio = 1.0;
+    // The column width the current render was built for; a resize that changes
+    // it triggers a re-render so percentage images keep fitting the pane.
+    int m_lastColumnWidth = -1;
     GifObjectHandler *m_gifHandler = nullptr;
     CheckboxObjectHandler *m_checkboxHandler = nullptr;
     ChipObjectHandler *m_chipHandler = nullptr;

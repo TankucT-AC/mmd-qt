@@ -129,6 +129,17 @@ selection.
 
 Base: `QTextBrowser`. Draws the copy button over the hovered code box.
 
+#### void resizeEvent(QResizeEvent *event) [override]
+
+Base: `QTextBrowser`. Re-centres the content column, deferred to the next
+event-loop turn because setting margins inside the handler has no effect until
+the next layout pass. It then compares the column width with the one the current
+render was built for (`m_lastColumnWidth`); when it differs — a resized window,
+an opened editor pane — it schedules a re-render so percentage image widths
+(`width="100%"`) resolve against the new column and keep fitting instead of
+overflowing. A device-pixel-ratio change drops the remote-image cache and
+renders at once.
+
 ## 11. Ownership and Lifecycle
 
 Widget; parent-owned. The code highlighter is an owned child; the GIF handler is a child of the view and is registered, not owned, by the document layout.
@@ -140,7 +151,7 @@ GUI-thread only. Re-rendering touches the document and the scrollbar.
 ## 14. Inter-Class Interactions
 
 - `MainWindow` connects the editor's `textChanged` to `setMarkdown`, calls `renderNow()` on splitter movement, and calls `setRenderStyle` on theme changes.
-- Calls `MarkdownBuilder::build` and `CodeHighlighter::highlight` on each rebuild.
+- Calls `MarkdownBuilder::build` and `CodeHighlighter::highlight` on each rebuild. Before the build it resolves the pane's live column width into `RenderStyle::contentWidth`, which the builder uses for percentage image widths.
 
 ## 16. Usage Example
 

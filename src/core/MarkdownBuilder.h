@@ -23,6 +23,10 @@ struct RenderStyle {
     // Maximum width of the rendered column; wider panes centre the content,
     // like Zed, instead of stretching text across the whole window.
     int maxContentWidth = 820;
+    // The text column the view actually has right now, used to resolve
+    // percentage image widths (a `width="100%"` banner). Zero means "no live
+    // width known", in which case maxContentWidth is used instead.
+    int contentWidth = 0;
     // When true, http(s) image references render as images the viewer loads
     // over the network; when false they fall back to the alt-text chip, which
     // is also the behaviour for an image whose download failed.
