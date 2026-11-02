@@ -95,16 +95,31 @@ qreal devicePixelRatio()
     return 1.0;
 }
 
-// Parses an HTML length such as "120", "120px" or "50%" into a pixel count.
-// Returns 0 when there is no usable number.
-int htmlDimension(const QString &value)
+// An HTML length attribute carries either an absolute pixel count or a
+// percentage of the text column. The two must not be confused: "100%" used to
+// be read as the digits "100" and drew a full-width banner at 100 px.
+struct HtmlLength {
+    int pixels = 0;
+    int percent = 0;
+};
+
+HtmlLength parseHtmlLength(const QString &value)
 {
-    const QString digits = QString(value).remove(QRegularExpression(QStringLiteral("[^0-9]")));
-    if (digits.isEmpty())
-        return 0;
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty())
+        return {};
+
     bool ok = false;
+    if (const int percentSign = int(trimmed.indexOf(QLatin1Char('%'))); percentSign >= 0) {
+        const int percent = trimmed.left(percentSign).trimmed().toInt(&ok);
+        return ok && percent > 0 ? HtmlLength{0, percent} : HtmlLength{};
+    }
+
+    const QString digits = QString(trimmed).remove(QRegularExpression(QStringLiteral("[^0-9]")));
+    if (digits.isEmpty())
+        return {};
     const int pixels = digits.toInt(&ok);
-    return ok && pixels > 0 ? pixels : 0;
+    return ok && pixels > 0 ? HtmlLength{pixels, 0} : HtmlLength{};
 }
 
 // Rasterises an SVG at the requested pixel size with antialiasing, so scaled
@@ -209,7 +224,7 @@ private:
     // Line of the next horizontal rule in the source. A rule carries no text of
     // its own, so it is found by shape instead of by its content.
     int lineOfNextRule();
-    void insertImageElement(const QString &source, const QString &alt, int htmlWidth = 0);
+    void insertImageElement(const QString &source, const QString &alt, HtmlLength width = {});
     void insertMathElement(const QString &tex, bool display);
     void insertChip(const QString &text, MarkdownBuilder::ChipKind kind);
     void insertVerbatim(const QString &content, int sourceLine);
@@ -1206,9 +1221,17 @@ int Builder::text(MD_TEXTTYPE type, const char *data, unsigned size)
     return 0;
 }
 
-void Builder::insertImageElement(const QString &source, const QString &alt, int htmlWidth)
+void Builder::insertImageElement(const QString &source, const QString &alt, HtmlLength width)
 {
     const QString path = ImageResolver::resolve(source, m_style.baseDir);
+
+    // An absolute width is capped by the image bound; a percentage asks for the
+    // text column and is deliberately allowed past it, like a GitHub hero.
+    int desiredWidth = 0;
+    if (width.percent > 0)
+        desiredWidth = qRound(width.percent / 100.0 * m_style.maxContentWidth);
+    else if (width.pixels > 0)
+        desiredWidth = (std::min)(width.pixels, m_style.maxImageWidth);
 
     // A span opens the block before its text arrives, so a block whose only
     // content is an image with no alt text still has no line. The image's own
@@ -1225,8 +1248,8 @@ void Builder::insertImageElement(const QString &source, const QString &alt, int 
             QTextImageFormat format;
             format.setName(source);
             format.setProperty(MarkdownBuilder::imageAltKey, alt);
-            if (htmlWidth > 0)
-                format.setWidth((std::min)(htmlWidth, m_style.maxImageWidth));
+            if (desiredWidth > 0)
+                format.setWidth(desiredWidth);
             m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
             return;
         }
@@ -1271,9 +1294,8 @@ void Builder::insertImageElement(const QString &source, const QString &alt, int 
 
     QSize display = natural;
     if (natural.isValid() && natural.width() > 0) {
-        // Honour an explicit HTML width, and always cap to the render style.
-        int desired = htmlWidth > 0 ? htmlWidth : natural.width();
-        desired = (std::min)(desired, m_style.maxImageWidth);
+        // An explicit width wins; otherwise the natural size is capped.
+        const int desired = desiredWidth > 0 ? desiredWidth : (std::min)(natural.width(), m_style.maxImageWidth);
         if (desired > 0 && desired != natural.width()) {
             display.setWidth(desired);
             display.setHeight(qRound(qreal(natural.height()) * desired / natural.width()));
@@ -1461,7 +1483,7 @@ void Builder::applyInlineHtml(const QString &html, bool openBlock)
             } else if (name == QLatin1String("img")) {
                 insertImageElement(htmlAttribute(token, QStringLiteral("src")),
                                    htmlAttribute(token, QStringLiteral("alt")),
-                                   htmlDimension(htmlAttribute(token, QStringLiteral("width"))));
+                                   parseHtmlLength(htmlAttribute(token, QStringLiteral("width"))));
             } else if (!token.selfClosing && !isHtmlVoidElement(name)) {
                 m_htmlTagStack.append(QString()); // unknown container: balanced no-op
             }

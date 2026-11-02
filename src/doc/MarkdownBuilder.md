@@ -114,6 +114,13 @@ markdown pass:
 - Inside a container, markdown is re-parsed by a nested `build()` call; SVG
   resources the inner build rasterised are copied over (`copyHtmlResources`)
   because a document fragment carries formats, not resources.
+- Image widths come from the HTML `width` attribute and are parsed apart
+  (`parseHtmlLength`): a bare number is pixels, capped to
+  `RenderStyle::maxImageWidth`, while a percentage is a fraction of the text
+  column (`RenderStyle::maxContentWidth`). Reading `"100%"` as the digits `"100"`
+  used to draw a full-width banner at 100 px; it now resolves to the column.
+  Qt 6.12 ignores `QTextImageFormat::maximumWidth` when drawing, so the width is
+  resolved to pixels at build time rather than left as a live percentage.
 
 ## 16. Usage Example
 

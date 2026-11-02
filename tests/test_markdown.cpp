@@ -41,6 +41,9 @@ private slots:
     void calloutIsRendered();
     void headingSlugsMatchGithubStyle();
     void htmlImageHonoursWidthAttribute();
+    void htmlPercentWidthFillsTheContentColumn();
+    void htmlPercentWidthOnRemoteImageIsSetBeforeLoad();
+    void htmlWidthWithoutDigitsIsIgnored();
     void htmlImageInsideCenteredDivIsCentered();
     void htmlParagraphAlignCentersMarkdownBlocks();
     void htmlTableCellsRenderTheirMarkdown();
@@ -911,6 +914,95 @@ void MarkdownTest::htmlImageHonoursWidthAttribute()
         }
     }
     QVERIFY(found);
+}
+
+void MarkdownTest::htmlPercentWidthFillsTheContentColumn()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    // width="100%" asks for the whole text column, not the bag of digits "100".
+    const int column = RenderStyle().maxContentWidth;
+
+    QTextDocument document;
+    render(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"100%\">\n"), dir.path());
+
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid() && !found; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QTextImageFormat imageFormat = format.toImageFormat();
+            QCOMPARE(int(imageFormat.width()), column);
+            QVERIFY(int(imageFormat.width()) != 100);
+            QCOMPARE(int(imageFormat.height()), qRound(40.0 * column / 200.0));
+            found = true;
+        }
+    }
+    QVERIFY(found);
+
+    // A percentage scales: half the column for width="50%".
+    QTextDocument half;
+    render(&half, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"50%\">\n"), dir.path());
+    for (QTextBlock block = half.firstBlock(); block.isValid(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (!it.fragment().charFormat().isImageFormat())
+                continue;
+            QCOMPARE(int(it.fragment().charFormat().toImageFormat().width()), column / 2);
+        }
+    }
+}
+
+void MarkdownTest::htmlPercentWidthOnRemoteImageIsSetBeforeLoad()
+{
+    // A remote banner must know its width before the download lands, so the
+    // block has the right height from the first layout.
+    RenderStyle style;
+    style.theme = ThemeDefinition::light();
+    style.remoteImagesEnabled = true;
+
+    QTextDocument document;
+    QVERIFY(MarkdownBuilder::build(&document, QStringLiteral("<img src=\"https://example.com/banner.svg\" alt=\"b\" width=\"100%\">\n"), style));
+
+    bool found = false;
+    for (QTextBlock block = document.firstBlock(); block.isValid() && !found; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextCharFormat format = it.fragment().charFormat();
+            if (!format.isImageFormat())
+                continue;
+            const QTextImageFormat imageFormat = format.toImageFormat();
+            QCOMPARE(int(imageFormat.width()), style.maxContentWidth);
+            found = true;
+        }
+    }
+    QVERIFY(found);
+}
+
+void MarkdownTest::htmlWidthWithoutDigitsIsIgnored()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(200, 40, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    // No usable number: the image keeps its natural size, no explicit width.
+    for (const QString &width : {QStringLiteral("abc"), QStringLiteral("%"), QStringLiteral("")}) {
+        QTextDocument document;
+        render(&document, QStringLiteral("<img src=\"pic.png\" alt=\"x\" width=\"%1\">\n").arg(width), dir.path());
+        for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+            for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+                const QTextCharFormat format = it.fragment().charFormat();
+                if (!format.isImageFormat())
+                    continue;
+                QCOMPARE(int(format.toImageFormat().width()), 0);
+            }
+        }
+    }
 }
 
 void MarkdownTest::readmeRendersWithoutLiteralHtml()
