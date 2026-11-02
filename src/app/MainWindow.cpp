@@ -250,15 +250,25 @@ void MainWindow::buildMenus()
 
     m_toggleEditor = viewMenu->addAction(tr("&Editor"));
     m_toggleEditor->setCheckable(true);
-    m_toggleEditor->setChecked(true);
+    // The shipped default is a viewer: the sidebar opens for reading, and the
+    // editor is one F9 away. The user's last layout is restored below.
+    m_toggleEditor->setChecked(false);
     m_toggleEditor->setShortcut(QStringLiteral("F9"));
-    connect(m_toggleEditor, &QAction::toggled, m_editorPane, &QWidget::setVisible);
+    connect(m_toggleEditor, &QAction::toggled, this, [this](bool checked) {
+        m_editorPane->setVisible(checked);
+        persistPaneSettings();
+    });
 
     m_toggleViewer = viewMenu->addAction(tr("&Preview"));
     m_toggleViewer->setCheckable(true);
     m_toggleViewer->setChecked(true);
     m_toggleViewer->setShortcut(QStringLiteral("F10"));
-    connect(m_toggleViewer, &QAction::toggled, m_viewerPane, &QWidget::setVisible);
+    connect(m_toggleViewer, &QAction::toggled, this, [this](bool checked) {
+        m_viewerPane->setVisible(checked);
+        persistPaneSettings();
+    });
+
+    restorePaneSettings();
 
     QMenu *themeMenu = viewMenu->addMenu(tr("&Theme"));
     auto *group = new QActionGroup(this);
@@ -546,6 +556,27 @@ void MainWindow::persistThemeSettings()
         const QJsonDocument document(m_themes->currentTheme().toJson());
         settings.setValue(QStringLiteral("theme/custom"), QString::fromUtf8(document.toJson(QJsonDocument::Compact)));
     }
+}
+
+// Pane visibility follows the theme: absent keys mean the shipped default,
+// which is a viewer-only window.
+void MainWindow::restorePaneSettings()
+{
+    QSettings settings;
+    const bool editor = settings.value(QStringLiteral("view/editorVisible"), false).toBool();
+    const bool viewer = settings.value(QStringLiteral("view/viewerVisible"), true).toBool();
+
+    m_toggleEditor->setChecked(editor);
+    m_toggleViewer->setChecked(viewer);
+    m_editorPane->setVisible(editor);
+    m_viewerPane->setVisible(viewer);
+}
+
+void MainWindow::persistPaneSettings()
+{
+    QSettings settings;
+    settings.setValue(QStringLiteral("view/editorVisible"), m_toggleEditor->isChecked());
+    settings.setValue(QStringLiteral("view/viewerVisible"), m_toggleViewer->isChecked());
 }
 
 void MainWindow::loadThemeFromFile()

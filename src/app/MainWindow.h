@@ -58,6 +58,8 @@ private:
     void loadThemeFromFile();
     void restoreThemeSettings();
     void persistThemeSettings();
+    void restorePaneSettings();
+    void persistPaneSettings();
 
     void updateStatusBar();
     void updateRenderStatus();

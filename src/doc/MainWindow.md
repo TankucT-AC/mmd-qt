@@ -29,7 +29,9 @@ The two pane widgets, for tests and for focus handling.
 
 #### QAction *toggleEditorAction() const / QAction *toggleViewerAction() const
 
-The checkable actions that show/hide each pane (`F9` / `F10`).
+The checkable actions that show/hide each pane (`F9` / `F10`). The shipped
+default is a viewer-only window; the last layout is kept in `QSettings`
+(`view/editorVisible`, `view/viewerVisible`) and restored on the next start.
 
 #### ThemeManager *themeManager() const / MarkdownEditor *editor() const / MarkdownView *viewer() const / FileDocument *fileDocument() const
 

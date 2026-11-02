@@ -20,8 +20,9 @@ class AppTest : public QObject
     Q_OBJECT
 
 private slots:
-    void windowOpensWithBothPanelsVisible();
+    void windowOpensWithViewerOnlyByDefault();
     void panelsCanBeClosedAndReopened();
+    void paneLayoutPersistsAcrossWindows();
     void themeChangeUpdatesApplicationPalette();
     void typingUpdatesPreview();
     void openingFileLoadsContentAndTitle();
@@ -155,31 +156,67 @@ void AppTest::themeChangeUpdatesApplicationPalette()
     QCOMPARE(QApplication::palette().color(QPalette::Window), ThemeDefinition::light().palette.color(QPalette::Window));
 }
 
-void AppTest::windowOpensWithBothPanelsVisible()
+void AppTest::windowOpensWithViewerOnlyByDefault()
 {
+    QSettings().remove(QStringLiteral("view"));
     MainWindow window;
     window.show();
 
-    QVERIFY(window.editorPanel()->isVisible());
     QVERIFY(window.viewerPanel()->isVisible());
+    QVERIFY(!window.editorPanel()->isVisible());
+    QVERIFY(!window.toggleEditorAction()->isChecked());
+    QVERIFY(window.toggleViewerAction()->isChecked());
 }
 
 void AppTest::panelsCanBeClosedAndReopened()
 {
+    QSettings().remove(QStringLiteral("view"));
     MainWindow window;
     window.show();
 
+    // The editor starts hidden; its toggle brings it back alongside the viewer.
     window.toggleEditorAction()->trigger();
-    QVERIFY(!window.editorPanel()->isVisible());
+    QVERIFY(window.editorPanel()->isVisible());
     QVERIFY(window.viewerPanel()->isVisible());
 
     window.toggleViewerAction()->trigger();
     QVERIFY(!window.viewerPanel()->isVisible());
 
-    window.toggleEditorAction()->trigger();
+    // An editor-only window is a legal state; back to the shipped default.
     window.toggleViewerAction()->trigger();
-    QVERIFY(window.editorPanel()->isVisible());
+    window.toggleEditorAction()->trigger();
+    QVERIFY(!window.editorPanel()->isVisible());
     QVERIFY(window.viewerPanel()->isVisible());
+}
+
+void AppTest::paneLayoutPersistsAcrossWindows()
+{
+    QSettings settings;
+    settings.remove(QStringLiteral("view"));
+
+    {
+        MainWindow window;
+        window.show();
+        window.toggleEditorAction()->trigger(); // the default is viewer-only
+        QVERIFY(window.editorPanel()->isVisible());
+    }
+    // A fresh window must pick the saved layout back up.
+    {
+        MainWindow window;
+        window.show();
+        QVERIFY(window.editorPanel()->isVisible());
+        QVERIFY(window.viewerPanel()->isVisible());
+
+        window.toggleViewerAction()->trigger(); // editor-only
+    }
+    {
+        MainWindow window;
+        window.show();
+        QVERIFY(window.editorPanel()->isVisible());
+        QVERIFY(!window.viewerPanel()->isVisible());
+    }
+
+    settings.remove(QStringLiteral("view"));
 }
 
 void AppTest::themeModePersistsAcrossWindows()
