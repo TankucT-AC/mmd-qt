@@ -26,7 +26,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Test Svg)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Test Svg Network)
 find_package(KF6SyntaxHighlighting 6.0 REQUIRED)
 
 # Strict warnings for this project's own translation units. They are attached as

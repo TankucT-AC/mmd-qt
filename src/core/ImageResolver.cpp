@@ -26,6 +26,13 @@ QString ImageResolver::resolve(const QString &source, const QString &baseDir)
     return QString();
 }
 
+bool ImageResolver::isRemote(const QString &source)
+{
+    const QUrl url(source);
+    const QString scheme = url.scheme();
+    return scheme == QLatin1String("http") || scheme == QLatin1String("https");
+}
+
 bool ImageResolver::isAnimated(const QString &path)
 {
     static const QStringList suffixes = {QStringLiteral("gif")};

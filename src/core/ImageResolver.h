@@ -8,15 +8,18 @@
 /*
  * Resolves image references found in markdown to concrete file paths,
  * relative to the directory of the markdown file (as most renderers do).
- * Remote URLs are out of scope: they resolve to an empty path and the
- * renderer shows a placeholder.
  */
 class ImageResolver
 {
 public:
     // Returns an absolute local path, or an empty string when the reference
-    // cannot be resolved to a local file.
+    // cannot be resolved to a local file. Remote http(s) URLs resolve to an
+    // empty string here — the viewer loads them over the network instead.
     static QString resolve(const QString &source, const QString &baseDir);
+
+    // True for http(s) references; those travel through the network fetcher
+    // rather than the local file system.
+    static bool isRemote(const QString &source);
 
     // True when the path points to an animated image format the viewer can
     // play (GIF in v1).
