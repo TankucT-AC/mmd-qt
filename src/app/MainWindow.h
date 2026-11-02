@@ -67,6 +67,7 @@ private:
     void persistPaneSettings();
     void restoreFontSettings();
     void chooseFonts();
+    void releaseOutlinePin();
 
     void updateStatusBar();
     void updateRenderStatus();
@@ -97,6 +98,10 @@ private:
     SidebarTitleBar *m_sidebarTitleBar = nullptr;
     FileTreePanel *m_filesPanel = nullptr;
     QVector<OutlineEntry> m_outline;
+    // The outline row the reader clicked, as an index into m_outline; -1 when
+    // the bar follows the reading position. Clicking pins the bar until the
+    // reader scrolls the preview themselves.
+    int m_outlinePin = -1;
     FileDocument *m_file = nullptr;
     ThemeManager *m_themes = nullptr;
     DocumentLimits m_limits;

@@ -17,6 +17,7 @@
 #include <QElapsedTimer>
 #include <QEvent>
 #include <QGuiApplication>
+#include <QKeyEvent>
 #include <QLocale>
 #include <QMouseEvent>
 #include <QPainter>
@@ -27,6 +28,7 @@
 #include <QTextCursor>
 #include <QTextFrame>
 #include <QTimer>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <functional>
@@ -64,6 +66,11 @@ MarkdownView::MarkdownView(QWidget *parent)
     m_renderTimer->setSingleShot(true);
     m_renderTimer->setInterval(kDefaultRenderIntervalMs);
     connect(m_renderTimer, &QTimer::timeout, this, &MarkdownView::rebuild);
+
+    // Dragging the scrollbar is reader-driven too; wheel and scrolling keys
+    // come through the overridden event handlers.
+    connect(verticalScrollBar(), &QScrollBar::sliderPressed, this, &MarkdownView::userScrolled);
+    connect(verticalScrollBar(), &QScrollBar::sliderMoved, this, &MarkdownView::userScrolled);
 
     // Hover the code boxes to reveal their copy button.
     viewport()->setMouseTracking(true);
@@ -119,6 +126,12 @@ void MarkdownView::scrollContentsBy(int dx, int dy)
 
 void MarkdownView::updateVisibleHeading()
 {
+    // A programmatic jump reports its own target right after scrolling; the
+    // organic read-out would only fight it (and, near the document end, get
+    // it wrong -- see the bottom rule below).
+    if (m_inNavigation)
+        return;
+
     // The reading position is the top edge of the pane. Once the pane is scrolled
     // to the end of the document there is nothing left to bring up, so the last
     // visible line counts instead — otherwise clicking the final section would
@@ -532,6 +545,33 @@ void MarkdownView::leaveEvent(QEvent *event)
     QTextBrowser::leaveEvent(event);
 }
 
+// These three report *reader-driven* movement: wheel, scrollbar drag, scrolling
+// keys. Programmatic jumps settle their own scroll and report their target
+// through visibleHeadingChanged, so a window can tell a navigation from a
+// reading move and pin the outline bar across the former.
+void MarkdownView::wheelEvent(QWheelEvent *event)
+{
+    QTextBrowser::wheelEvent(event);
+    emit userScrolled();
+}
+
+void MarkdownView::keyPressEvent(QKeyEvent *event)
+{
+    QTextBrowser::keyPressEvent(event);
+    switch (event->key()) {
+    case Qt::Key_PageUp:
+    case Qt::Key_PageDown:
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+    case Qt::Key_Home:
+    case Qt::Key_End:
+        emit userScrolled();
+        break;
+    default:
+        break;
+    }
+}
+
 void MarkdownView::paintEvent(QPaintEvent *event)
 {
     QTextBrowser::paintEvent(event);
@@ -596,7 +636,17 @@ bool MarkdownView::scrollToBlock(int blockNumber)
     const int top = cursorRect(cursor).top();
     // Land the heading at the top edge, with the same gap the "current section"
     // rule tolerates, so the outline marks the section it just jumped to.
+    m_inNavigation = true;
     verticalScrollBar()->setValue(verticalScrollBar()->value() + top - kHeadingTopGap);
+    m_inNavigation = false;
+
+    // The jump names its own target, even when the document is too short to
+    // scroll that far and the bar clamps at the bottom: what the reader asked
+    // for is the section clicked, not whatever sits under the reading line.
+    if (m_visibleHeading == blockNumber)
+        return true;
+    m_visibleHeading = blockNumber;
+    emit visibleHeadingChanged(blockNumber);
     return true;
 }
 
@@ -607,11 +657,7 @@ bool MarkdownView::scrollToAnchor(const QString &slug)
             continue;
         if (MarkdownBuilder::headingSlug(block.text()) != slug)
             continue;
-
-        QTextCursor cursor(block);
-        const int top = cursorRect(cursor).top();
-        verticalScrollBar()->setValue(verticalScrollBar()->value() + top - 8);
-        return true;
+        return scrollToBlock(block.blockNumber());
     }
     return false;
 }

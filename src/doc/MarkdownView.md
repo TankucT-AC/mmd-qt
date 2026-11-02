@@ -41,6 +41,21 @@ A plain click landed on a block the builder could map: the editor should move it
 caret to this zero-based source line. Links and the code-box copy button do not
 emit it, and neither does a drag (which is a selection).
 
+#### void visibleHeadingChanged(int blockNumber)
+
+The heading the reader is under, as a rendered block number (-1 while above the
+first one). Organic scrolling reads it off the top edge of the pane; a
+programmatic jump (`scrollToBlock`, anchors) skips that read-out and reports its
+own target, even when the document is too short to scroll that far — the outline
+must mark what was clicked, not whatever ends up under the reading line.
+
+#### void userScrolled()
+
+The reader moved the view themselves: wheel, scrollbar drag or a scrolling key
+(PageUp/PageDown/arrows/Home/End). Distinct from a programmatic jump, so the
+window can pin the outline bar across a navigation and let it follow again on
+real reading.
+
 ## 9. Public Methods
 
 #### explicit MarkdownView(QWidget *parent = nullptr)

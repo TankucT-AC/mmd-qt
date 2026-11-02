@@ -214,7 +214,14 @@ void MainWindow::buildSidebar()
     resizeDocks({m_sidebar}, {240}, Qt::Horizontal);
 
     connect(m_viewer, &MarkdownView::rendered, this, &MainWindow::refreshOutline);
-    connect(m_viewer, &MarkdownView::visibleHeadingChanged, m_outlinePanel, &OutlinePanel::setCurrentBlock);
+    connect(m_viewer, &MarkdownView::visibleHeadingChanged, this, [this](int block) {
+        // A pinned bar stays on the row that was clicked; it follows the
+        // reading position again once the reader scrolls (releaseOutlinePin).
+        if (m_outlinePin >= 0)
+            return;
+        m_outlinePanel->setCurrentBlock(block);
+    });
+    connect(m_viewer, &MarkdownView::userScrolled, this, &MainWindow::releaseOutlinePin);
     connect(m_outlinePanel, &OutlinePanel::entryActivated, this, &MainWindow::activateOutlineEntry);
     connect(m_filesPanel, &FileTreePanel::fileActivated, this, [this](const QString &path) {
         if (maybeSave())
@@ -414,6 +421,17 @@ void MainWindow::refreshOutline()
 {
     m_outline = Outline::fromDocument(*m_viewer->document());
     m_outlinePanel->setOutline(m_outline);
+    if (m_outlinePin >= 0 && m_outlinePin < m_outline.size())
+        m_outlinePanel->setCurrentBlock(m_outline.at(m_outlinePin).blockNumber);
+    else
+        m_outlinePanel->setCurrentBlock(m_viewer->visibleHeading());
+}
+
+void MainWindow::releaseOutlinePin()
+{
+    if (m_outlinePin < 0)
+        return;
+    m_outlinePin = -1;
     m_outlinePanel->setCurrentBlock(m_viewer->visibleHeading());
 }
 
@@ -423,7 +441,10 @@ void MainWindow::activateOutlineEntry(int index)
         return;
 
     const OutlineEntry &entry = m_outline.at(index);
-    m_viewer->scrollToBlock(entry.blockNumber);
+    // The bar belongs to the clicked row from now on: the jump reports its own
+    // target, and organic updates stay ignored until the reader scrolls.
+    if (m_viewer->scrollToBlock(entry.blockNumber))
+        m_outlinePin = index;
 
     // The editor locates headings by scanning the source, which can disagree
     // with the renderer on exotic documents. Jumping somewhere wrong would be

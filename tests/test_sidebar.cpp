@@ -39,6 +39,8 @@ private slots:
     void windowOutlineFollowsTheDocument();
     void outlineClickScrollsThePreview();
     void outlineClickLandsOnTheClickedSection();
+    void outlineClickKeepsTheBarOnTheClickedRowNearTheEnd();
+    void outlineFollowsTheReadingAgainAfterUserScroll();
     void clickingThePreviewMovesTheEditorCaret();
     void theSidebarSeparatorIsAHairline();
     void theSidebarTitleBarHasUsableButtons();
@@ -264,6 +266,113 @@ void SidebarTest::outlineClickLandsOnTheClickedSection()
         QCOMPARE(window.viewer()->visibleHeading(), entries.at(index).blockNumber);
         QCOMPARE(window.editor()->textCursor().block().blockNumber(), sourceLines.at(index));
     }
+}
+
+// A section within one viewport of the document end cannot be brought to the
+// reading line: the scroll clamps at the bottom. The bar has to stay on the
+// clicked row instead of sliding to whatever ends up under the reading line
+// (the last heading on screen) -- this is the "click 10, land on 11" bug.
+void SidebarTest::outlineClickKeepsTheBarOnTheClickedRowNearTheEnd()
+{
+    MainWindow window;
+    window.resize(900, 400);
+    window.show();
+    window.viewer()->setRenderInterval(0);
+
+    QString markdown = QStringLiteral("# Introduction\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("filler %1\n\n").arg(i);
+    markdown += QStringLiteral("# Section one\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("more filler %1\n\n").arg(i);
+    markdown += QStringLiteral("## Section two\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("tail %1\n\n").arg(i);
+    markdown += QStringLiteral("## Near end\n\nbody\n\n");
+    markdown += QStringLiteral("## The last one\n\nbody\n");
+
+    window.editor()->setMarkdown(markdown);
+    window.viewer()->renderNow();
+
+    auto *panel = window.findChild<OutlinePanel *>();
+    QVERIFY(panel);
+    auto *tree = panel->findChild<QTreeWidget *>();
+    QVERIFY(tree);
+
+    QTreeWidgetItem *nearEnd = nullptr;
+    std::function<void(QTreeWidgetItem *)> find = [&](QTreeWidgetItem *item) {
+        if (item->text(0) == QLatin1String("Near end"))
+            nearEnd = item;
+        for (int child = 0; child < item->childCount(); ++child)
+            find(item->child(child));
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i)
+        find(tree->topLevelItem(i));
+    QVERIFY(nearEnd);
+
+    const int nearEndIndex = nearEnd->data(0, Qt::UserRole).toInt();
+    const QVector<OutlineEntry> entries = Outline::fromDocument(*window.viewer()->document());
+    QVERIFY(!tree->visualItemRect(nearEnd).isNull());
+    QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier, tree->visualItemRect(nearEnd).center());
+
+    QCOMPARE(window.viewer()->visibleHeading(), entries.at(nearEndIndex).blockNumber);
+    QVERIFY2(tree->currentItem() == nearEnd, "the outline bar must stay on the clicked row");
+}
+
+void SidebarTest::outlineFollowsTheReadingAgainAfterUserScroll()
+{
+    MainWindow window;
+    window.resize(900, 400);
+    window.show();
+    window.viewer()->setRenderInterval(0);
+
+    QString markdown = QStringLiteral("# Introduction\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("filler %1\n\n").arg(i);
+    markdown += QStringLiteral("# Section one\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("more filler %1\n\n").arg(i);
+    markdown += QStringLiteral("## Section two\n\nbody\n\n");
+    for (int i = 0; i < 40; ++i)
+        markdown += QStringLiteral("tail %1\n\n").arg(i);
+
+    window.editor()->setMarkdown(markdown);
+    window.viewer()->renderNow();
+
+    auto *panel = window.findChild<OutlinePanel *>();
+    QVERIFY(panel);
+    auto *tree = panel->findChild<QTreeWidget *>();
+    QVERIFY(tree);
+
+    QTreeWidgetItem *sectionTwo = nullptr;
+    std::function<void(QTreeWidgetItem *)> find = [&](QTreeWidgetItem *item) {
+        if (item->text(0) == QLatin1String("Section two"))
+            sectionTwo = item;
+        for (int child = 0; child < item->childCount(); ++child)
+            find(item->child(child));
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i)
+        find(tree->topLevelItem(i));
+    QVERIFY(sectionTwo);
+
+    // The click pins the bar to the clicked row...
+    QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier, tree->visualItemRect(sectionTwo).center());
+    QCOMPARE(tree->currentItem(), sectionTwo);
+
+    // ...and a user scroll hands the bar back to the reading position.
+    window.viewer()->setFocus();
+    QTest::keyClick(window.viewer(), Qt::Key_PageUp);
+    QVERIFY(tree->currentItem() != sectionTwo);
+
+    const QVector<OutlineEntry> entries = Outline::fromDocument(*window.viewer()->document());
+    const int visible = window.viewer()->visibleHeading();
+    int visibleIndex = -1;
+    for (int i = 0; i < entries.size(); ++i) {
+        if (entries.at(i).blockNumber == visible)
+            visibleIndex = i;
+    }
+    QVERIFY(visibleIndex >= 0);
+    QCOMPARE(tree->currentItem()->data(0, Qt::UserRole).toInt(), visibleIndex);
 }
 
 void SidebarTest::clickingThePreviewMovesTheEditorCaret()

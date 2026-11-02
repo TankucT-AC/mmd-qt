@@ -79,6 +79,11 @@ GUI-thread only.
   the reader because rendered and source heights do not line up.
 - Connects `OutlinePanel::entryActivated` → `activateOutlineEntry`, which scrolls
   the preview and (when the renderer and the source scan agree) the editor.
+  The clicked row then pins the outline bar: `visibleHeadingChanged` is ignored
+  until `MarkdownView::userScrolled` reports real reader movement
+  (`releaseOutlinePin`), so a jump near the document end — where the scroll
+  clamps and the heading cannot reach the reading line — leaves the bar on the
+  clicked row instead of sliding to the last heading on screen.
 - Connects `ThemeManager::themeChanged` → `applyTheme` (palette, sidebar hairline,
   editor, viewer).
 - Connects `FileDocument::externallyChanged` → `onExternalChange`.

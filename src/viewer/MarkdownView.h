@@ -126,6 +126,11 @@ signals:
     // -1 while above the first heading. Drives the outline panel.
     void visibleHeadingChanged(int blockNumber);
 
+    // The reader moved the view themselves: wheel, drag of the scrollbar, or a
+    // scrolling key. Distinct from a programmatic jump, which reports its own
+    // target through visibleHeadingChanged instead.
+    void userScrolled();
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
     void scrollContentsBy(int dx, int dy) override;
@@ -134,6 +139,8 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void leaveEvent(QEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     void rebuild();
@@ -165,6 +172,9 @@ private:
     QVector<FindState::Match> m_findMatches;
     int m_findCurrent = -1;
     int m_visibleHeading = -1;
+    // True while a programmatic jump (outline click, anchor) is settling its
+    // own scroll position; organic updates stay quiet until it lands.
+    bool m_inNavigation = false;
     // Where the last left press landed, so a drag (a selection) does not also
     // move the editor caret.
     QPoint m_pressPosition;
