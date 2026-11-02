@@ -94,6 +94,10 @@ void ImageFetcherTest::fetchesSvgAndRespectsDevicePixelRatio()
     const QImage image = ready.at(0).at(1).value<QImage>();
     QCOMPARE(image.width(), 40); // 20 x dpr 2
     QCOMPARE(image.height(), 20);
+    // Tagged with the ratio, so the document draws it at the logical 20x10
+    // while keeping the extra pixels.
+    QCOMPARE(image.devicePixelRatio(), 2.0);
+    QCOMPARE(image.deviceIndependentSize().toSize(), QSize(20, 10));
 }
 
 void ImageFetcherTest::sniffsImageBytesWhenContentTypeLies()

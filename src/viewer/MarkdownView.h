@@ -194,6 +194,8 @@ private:
     // hash, so a picture the reader already saw is never decoded twice.
     QHash<QUrl, QVariant> m_imageCache;
     ImageFetcher *m_imageFetcher = nullptr;
+    // The screen ratio the current remote-image rasters were produced at.
+    qreal m_lastDevicePixelRatio = 1.0;
     GifObjectHandler *m_gifHandler = nullptr;
     CheckboxObjectHandler *m_checkboxHandler = nullptr;
     ChipObjectHandler *m_chipHandler = nullptr;

@@ -168,6 +168,10 @@ void MarkdownView::setRenderStyle(const RenderStyle &style)
     m_mathHandler->setEmSize(bodyFont.pixelSize() > 0 ? qreal(bodyFont.pixelSize()) : bodyFont.pointSizeF() * logicalDpiY() / 72.0);
     m_mathHandler->setColor(style.theme.palette.color(QPalette::Text));
     m_mathHandler->setDevicePixelRatio(devicePixelRatioF());
+    // Remote images (their SVG rasters especially) belong to the current
+    // screen ratio; a stale ratio would soften every badge.
+    m_lastDevicePixelRatio = devicePixelRatioF();
+    m_imageFetcher->setDevicePixelRatio(m_lastDevicePixelRatio);
     m_codeHighlighter->setThemeDefinition(style.theme);
     setPalette(style.theme.palette);
     updateContentMargins();
@@ -182,6 +186,16 @@ void MarkdownView::resizeEvent(QResizeEvent *event)
     QTimer::singleShot(0, this, [this] {
         updateContentMargins();
     });
+
+    // Moving the window to a screen with a different scale changes the ratio
+    // remote images were rasterised at; drop the cache and fetch again.
+    const qreal ratio = devicePixelRatioF();
+    if (!qFuzzyCompare(ratio, m_lastDevicePixelRatio)) {
+        m_lastDevicePixelRatio = ratio;
+        m_imageFetcher->setDevicePixelRatio(ratio);
+        m_imageCache.clear();
+        renderNow();
+    }
 }
 
 void MarkdownView::scrollContentsBy(int dx, int dy)

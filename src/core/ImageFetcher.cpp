@@ -186,17 +186,23 @@ QImage ImageFetcher::decode(const QByteArray &bytes, const QString &contentType)
 {
     if (isSvgPayload(contentType, bytes)) {
         // SVG has no pixel size until it is rendered: rasterise at the
-        // intrinsic size times the ratio of the screen showing it.
+        // intrinsic size times the ratio of the screen showing it, then tag
+        // the result with that ratio so the document draws it at the logical
+        // size while keeping the extra pixels -- sharp on HiDPI instead of
+        // scaled up from a 1x raster.
         QSvgRenderer renderer(bytes);
         if (!renderer.isValid())
             return QImage();
-        const QSizeF size = QSizeF(renderer.defaultSize()) * m_devicePixelRatio;
-        if (size.isEmpty())
+        const qreal ratio = m_devicePixelRatio > 0 ? m_devicePixelRatio : 1.0;
+        const QSizeF logical = renderer.defaultSize();
+        if (logical.isEmpty())
             return QImage();
-        QImage image(int(size.width()), int(size.height()), QImage::Format_ARGB32_Premultiplied);
+        const QSizeF pixel = logical * ratio;
+        QImage image(qRound(pixel.width()), qRound(pixel.height()), QImage::Format_ARGB32_Premultiplied);
         image.fill(Qt::transparent);
         QPainter painter(&image);
-        renderer.render(&painter, QRectF(0, 0, size.width(), size.height()));
+        renderer.render(&painter, QRectF(0, 0, image.width(), image.height()));
+        image.setDevicePixelRatio(ratio);
         return image;
     }
 
