@@ -317,10 +317,9 @@ void MainWindow::applyTheme(const ThemeDefinition &theme)
     QApplication::setPalette(theme.palette);
 
     // The dock separator is a thick bevel by default; a hairline keeps the
-    // sidebar and the editor reading as two flat panes.
+    // sidebar and the editor reading as two flat panes. The sidebar's own title
+    // bar follows the palette on its own.
     setStyleSheet(QStringLiteral("QMainWindow::separator { background: %1; width: 1px; height: 1px; }").arg(theme.markdown.rule.name()));
-    if (m_sidebarTitleBar)
-        m_sidebarTitleBar->setTheme(theme);
 
     m_editor->setTheme(theme);
 

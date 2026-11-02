@@ -7,9 +7,14 @@ two buttons — float and close — sized to be hit with a pointer.
 
 Qt's stock dock buttons are about 18x14 under Fusion, and a style sheet cannot
 enlarge them (`QDockWidget::close-button { width: …; height: … }` is ignored), so
-the sidebar draws its own. The glyphs are painted in the theme's window-text
-colour rather than borrowed from the style, so they stay crisp at the size the
-stock icons are not made for and follow the palette.
+the sidebar draws its own.
+
+Each button paints its own glyph rather than carrying a `QIcon` built from an
+18 px pixmap: such a pixmap is a bitmap at that size, so a 2x screen stretches it
+to 36 device pixels and it goes soft. Painting on the widget keeps the glyph in
+device coordinates at whatever ratio the screen has — the same recipe as the code
+box's copy button. The pen follows `QPalette::WindowText`, so a theme change
+repaints correctly without any extra call.
 
 Trade-off: replacing the title bar gives up Qt's drag-to-redock gesture. The
 float button still detaches the pane, and a floating dock can be dragged back
@@ -37,10 +42,6 @@ class needs to name them.
 Builds the label and the two buttons and wires them to the dock: close hides it,
 float toggles `QDockWidget::setFloating`.
 
-#### void setTheme(const ThemeDefinition &theme)
-
-Recolours both glyphs from `QPalette::WindowText` of the theme's palette.
-
 ## 11. Ownership and Lifecycle
 
 Parent-owned by the dock widget, which deletes it with itself. The buttons are
@@ -53,7 +54,8 @@ GUI-thread only.
 ## 14. Inter-Class Interactions
 
 - `MainWindow::buildSidebar` creates it and installs it with `setTitleBarWidget`.
-- `MainWindow::applyTheme` calls `setTheme` so the glyphs follow the active theme.
+- The buttons paint from the widget palette, so `MainWindow::applyTheme` only has
+  to set the application palette; there is no extra call.
 - Test hooks: the buttons carry the object names `sidebarFloatButton` and
   `sidebarCloseButton`.
 

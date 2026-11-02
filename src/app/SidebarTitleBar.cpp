@@ -3,60 +3,89 @@
 
 #include "app/SidebarTitleBar.h"
 
+#include <QAbstractButton>
 #include <QDockWidget>
 #include <QHBoxLayout>
-#include <QIcon>
 #include <QLabel>
 #include <QPainter>
-#include <QPixmap>
-#include <QToolButton>
 
 namespace
 {
 
 constexpr int kButtonSide = 26;
-constexpr int kIconSide = 18;
+// The square the glyph is laid out in, centred in the button.
+constexpr int kGlyphSide = 18;
+constexpr qreal kGlyphPen = 1.4;
 
-enum class Glyph {
-    Float,
-    Close,
-};
-
-// Drawn rather than borrowed from the style: the glyphs have to be crisp at a
-// size the stock icons are not made for, and follow the theme.
-QIcon glyphIcon(Glyph glyph, const QColor &color)
+/*
+ * A flat button that paints its own glyph.
+ *
+ * A QIcon built from an 18 px pixmap is a bitmap at that size: on a 2x screen it
+ * is stretched to 36 device pixels and goes soft. Painting on the widget keeps
+ * the glyph in device coordinates at whatever ratio the screen has, which is how
+ * the code box's copy button stays sharp, so this follows the same recipe.
+ */
+class GlyphButton : public QAbstractButton
 {
-    QPixmap pixmap(kIconSide, kIconSide);
-    pixmap.fill(Qt::transparent);
+public:
+    enum class Glyph {
+        Float,
+        Close,
+    };
 
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QPen(color, 1.4));
-    painter.setBrush(Qt::NoBrush);
-
-    if (glyph == Glyph::Close) {
-        painter.drawLine(QPointF(4.5, 4.5), QPointF(13.5, 13.5));
-        painter.drawLine(QPointF(13.5, 4.5), QPointF(4.5, 13.5));
-    } else {
-        // Two overlapping sheets: the docked pane, and the one that leaves.
-        painter.drawRoundedRect(QRectF(3.5, 3.5, 9.0, 9.0), 1.5, 1.5);
-        painter.drawRoundedRect(QRectF(7.5, 7.5, 7.0, 7.0), 1.5, 1.5);
+    GlyphButton(Glyph glyph, QWidget *parent)
+        : QAbstractButton(parent)
+        , m_glyph(glyph)
+    {
+        setAttribute(Qt::WA_Hover);
+        setFixedSize(kButtonSide, kButtonSide);
     }
 
-    painter.end();
-    return QIcon(pixmap);
-}
+protected:
+    void enterEvent(QEnterEvent *event) override
+    {
+        QAbstractButton::enterEvent(event);
+        update();
+    }
 
-QToolButton *makeButton(const QString &objectName, const QString &tooltip, QWidget *parent)
-{
-    auto *button = new QToolButton(parent);
-    button->setObjectName(objectName);
-    button->setAutoRaise(true);
-    button->setIconSize(QSize(kIconSide, kIconSide));
-    button->setFixedSize(kButtonSide, kButtonSide);
-    button->setToolTip(tooltip);
-    return button;
-}
+    void leaveEvent(QEvent *event) override
+    {
+        QAbstractButton::leaveEvent(event);
+        update();
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+
+        const QColor ink = palette().color(QPalette::WindowText);
+
+        if (isDown() || underMouse()) {
+            QColor tint = ink;
+            tint.setAlpha(isDown() ? 48 : 24);
+            painter.fillRect(rect(), tint);
+        }
+
+        painter.setPen(QPen(ink, kGlyphPen));
+        painter.setBrush(Qt::NoBrush);
+        painter.translate((width() - kGlyphSide) / 2.0, (height() - kGlyphSide) / 2.0);
+
+        if (m_glyph == Glyph::Close) {
+            painter.drawLine(QPointF(4.0, 4.0), QPointF(14.0, 14.0));
+            painter.drawLine(QPointF(14.0, 4.0), QPointF(4.0, 14.0));
+            return;
+        }
+
+        // Two overlapping sheets: the docked pane, and the one that leaves.
+        constexpr qreal kSheet = 8.5;
+        painter.drawRoundedRect(QRectF(1.0, 1.0, kSheet, kSheet), 2.0, 2.0);
+        painter.drawRoundedRect(QRectF(8.5, 8.5, kSheet, kSheet), 2.0, 2.0);
+    }
+
+private:
+    Glyph m_glyph;
+};
 
 } // namespace
 
@@ -66,8 +95,15 @@ SidebarTitleBar::SidebarTitleBar(QDockWidget *dock, const QString &title, QWidge
     auto *label = new QLabel(title, this);
     label->setContentsMargins(6, 0, 0, 0);
 
-    m_float = makeButton(QStringLiteral("sidebarFloatButton"), tr("Float the sidebar"), this);
-    m_close = makeButton(QStringLiteral("sidebarCloseButton"), tr("Close the sidebar"), this);
+    auto *floatButton = new GlyphButton(GlyphButton::Glyph::Float, this);
+    floatButton->setObjectName(QStringLiteral("sidebarFloatButton"));
+    floatButton->setToolTip(tr("Float the sidebar"));
+    m_float = floatButton;
+
+    auto *closeButton = new GlyphButton(GlyphButton::Glyph::Close, this);
+    closeButton->setObjectName(QStringLiteral("sidebarCloseButton"));
+    closeButton->setToolTip(tr("Close the sidebar"));
+    m_close = closeButton;
 
     auto *layout = new QHBoxLayout(this);
     layout->setContentsMargins(4, 2, 4, 2);
@@ -77,15 +113,8 @@ SidebarTitleBar::SidebarTitleBar(QDockWidget *dock, const QString &title, QWidge
     layout->addWidget(m_float);
     layout->addWidget(m_close);
 
-    connect(m_close, &QToolButton::clicked, dock, &QWidget::hide);
-    connect(m_float, &QToolButton::clicked, dock, [dock] {
+    connect(m_close, &QAbstractButton::clicked, dock, &QWidget::hide);
+    connect(m_float, &QAbstractButton::clicked, dock, [dock] {
         dock->setFloating(!dock->isFloating());
     });
-}
-
-void SidebarTitleBar::setTheme(const ThemeDefinition &theme)
-{
-    const QColor ink = theme.palette.color(QPalette::WindowText);
-    m_float->setIcon(glyphIcon(Glyph::Float, ink));
-    m_close->setIcon(glyphIcon(Glyph::Close, ink));
 }

@@ -3,20 +3,22 @@
 
 #pragma once
 
-#include "core/Theme.h"
-
 #include <QWidget>
 
 class QDockWidget;
-class QToolButton;
+class QAbstractButton;
 
 /*
  * The sidebar's own title bar.
  *
  * Qt draws the stock float/close buttons small (about 18x14 in Fusion) and a
  * style sheet cannot enlarge them, so the sidebar carries its own: the title,
- * then two buttons sized to be hit with a pointer. Trade-off: a custom title
- * bar gives up drag-to-redock, which the float button still covers.
+ * then two buttons sized to be hit with a pointer. Each button paints its own
+ * glyph, the way the code box's copy button does, so it stays sharp on a high-DPI
+ * screen instead of being a scaled bitmap.
+ *
+ * Trade-off: a custom title bar gives up drag-to-redock, which the float button
+ * still covers.
  */
 class SidebarTitleBar : public QWidget
 {
@@ -25,10 +27,7 @@ class SidebarTitleBar : public QWidget
 public:
     SidebarTitleBar(QDockWidget *dock, const QString &title, QWidget *parent = nullptr);
 
-    // Recolours the glyphs for the active theme.
-    void setTheme(const ThemeDefinition &theme);
-
 private:
-    QToolButton *m_float = nullptr;
-    QToolButton *m_close = nullptr;
+    QAbstractButton *m_float = nullptr;
+    QAbstractButton *m_close = nullptr;
 };
