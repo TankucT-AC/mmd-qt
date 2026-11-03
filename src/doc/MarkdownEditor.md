@@ -30,7 +30,9 @@ off wrapping.
 #### void setTheme(const ThemeDefinition &theme)
 
 Applies the theme: re-highlights the document, sets the widget palette and
-recomputes the current-line highlight.
+recomputes the current-line highlight. The line is painted with
+`markdown.currentLine`, a role of its own: sharing `codeBackground` used to
+make the caret's line invisible inside a fenced block.
 
 #### void setCodeFont(const QFont &font)
 

@@ -28,6 +28,7 @@ struct MarkdownColors {
     QColor tableHeaderBackground;
     QColor taskOpen; // unchecked task marker
     QColor taskDone; // checked task marker
+    QColor currentLine; // editor's active-line tint
 };
 
 /*

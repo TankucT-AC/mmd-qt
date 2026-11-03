@@ -12,11 +12,13 @@
 #include "viewer/MarkdownView.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QApplication>
 #include <QBuffer>
 #include <QClipboard>
 #include <QColor>
 #include <QFile>
 #include <QGuiApplication>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QSet>
@@ -60,6 +62,7 @@ private slots:
     void remoteImageAppearsAfterDownload();
     void htmlPercentImageFitsThePaneAndReshrinks();
     void remoteImageIsPreScaledToTheDrawnWidth();
+    void hoveringALinkShowsTheHandCursor();
 };
 
 void ViewTest::rendersMarkdownIntoDocument()
@@ -711,6 +714,67 @@ void ViewTest::remoteImageIsPreScaledToTheDrawnWidth()
     // Pre-scaled to the drawn width (20 logical), not left at the 40px source,
     // so the text layout paints it 1:1 instead of resampling it.
     QCOMPARE(image.deviceIndependentSize().toSize(), QSize(20, 10));
+}
+
+void ViewTest::hoveringALinkShowsTheHandCursor()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage badge(48, 20, QImage::Format_ARGB32);
+    badge.fill(Qt::red);
+    QVERIFY(badge.save(dir.filePath(QStringLiteral("badge.png"))));
+
+    MarkdownView view;
+    view.resize(700, 400);
+    view.show();
+    view.setRenderInterval(0);
+    view.setBaseDir(dir.path());
+    view.setMarkdown(QStringLiteral("See [the docs](https://example.com) here.\n\n[![badge](badge.png)](https://example.com)\n"));
+    QTRY_VERIFY(view.document()->blockCount() >= 2);
+
+    // Find the badge object: an image carrying a link.
+    int badgePosition = -1;
+    for (QTextBlock block = view.document()->firstBlock(); block.isValid() && badgePosition < 0; block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().isImageFormat())
+                badgePosition = it.fragment().position();
+        }
+    }
+    QVERIFY(badgePosition >= 0);
+
+    const auto hover = [&view](int documentPosition) {
+        QTextCursor cursor(view.document());
+        cursor.setPosition(documentPosition);
+        const QPoint center = view.cursorRect(cursor).center();
+        QMouseEvent move(QEvent::MouseMove,
+                         QPointF(center),
+                         QPointF(center),
+                         QPointF(view.viewport()->mapToGlobal(center)),
+                         Qt::NoButton,
+                         Qt::NoButton,
+                         Qt::NoModifier);
+        QApplication::sendEvent(view.viewport(), &move);
+    };
+
+    const QTextBlock firstBlock = view.document()->firstBlock();
+    const int linkStart = firstBlock.position() + int(firstBlock.text().indexOf(QStringLiteral("the docs")));
+    QVERIFY(linkStart > firstBlock.position());
+
+    hover(linkStart + 2); // inside the linked text
+    QCOMPARE(view.viewport()->cursor().shape(), Qt::PointingHandCursor);
+
+    hover(badgePosition); // the linked image object
+    QCOMPARE(view.viewport()->cursor().shape(), Qt::PointingHandCursor);
+
+    hover(firstBlock.position() + 1); // plain text
+    QCOMPARE(view.viewport()->cursor().shape(), Qt::IBeamCursor);
+
+    // Leaving the view must not leave the hand cursor behind.
+    hover(linkStart + 2);
+    QCOMPARE(view.viewport()->cursor().shape(), Qt::PointingHandCursor);
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(&view, &leave);
+    QCOMPARE(view.viewport()->cursor().shape(), Qt::IBeamCursor);
 }
 
 QTEST_MAIN(ViewTest)

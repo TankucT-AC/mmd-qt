@@ -45,6 +45,7 @@ a convenient signal payload.
 | `tableHeaderBackground` | `QColor` | Table header row background. |
 | `taskOpen` | `QColor` | Unchecked task marker. |
 | `taskDone` | `QColor` | Checked task marker. |
+| `currentLine` | `QColor` | The editor's active-line tint, distinct from both the plain background and `codeBackground`, so the caret's line stays findable inside a fence. |
 
 `ThemeDefinition`:
 

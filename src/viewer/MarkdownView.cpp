@@ -772,7 +772,11 @@ void MarkdownView::updateHoveredFrame(const QPoint &pos)
     }
 
     const bool overButton = m_hoveredFrame && copyButtonRect(m_hoveredFrame).contains(pos);
-    viewport()->setCursor(overButton ? Qt::PointingHandCursor : Qt::IBeamCursor);
+    // A link — in text or on an image badge — asks for the hand; setting it here
+    // also keeps the cursor right when the move is ours and the layout does not
+    // re-run its own hover logic.
+    const bool overLink = !anchorAt(pos).isEmpty();
+    viewport()->setCursor(overButton || overLink ? Qt::PointingHandCursor : Qt::IBeamCursor);
 }
 
 void MarkdownView::mouseMoveEvent(QMouseEvent *event)
@@ -826,6 +830,9 @@ void MarkdownView::leaveEvent(QEvent *event)
         m_hoveredFrame = nullptr;
         viewport()->update();
     }
+    // The hand cursor must not outlive the link it was hovering: the next
+    // mouseMoveEvent may be far away, so restore the text cursor here.
+    viewport()->setCursor(Qt::IBeamCursor);
     QTextBrowser::leaveEvent(event);
 }
 

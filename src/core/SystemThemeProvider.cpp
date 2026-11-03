@@ -157,6 +157,7 @@ std::optional<ThemeDefinition> SystemThemeProvider::loadScheme(const QString &pa
     theme.markdown.tableHeaderBackground = theme.palette.color(QPalette::AlternateBase);
     theme.markdown.taskOpen = inactive;
     theme.markdown.taskDone = QColor(0x2e, 0xa0, 0x43);
+    theme.markdown.currentLine = blend(viewBg, theme.palette.color(QPalette::Highlight), 0.14);
 
     const bool dark = windowBg.lightness() < 128;
     theme.syntax = dark ? ThemeDefinition::dark().syntax : ThemeDefinition::light().syntax;

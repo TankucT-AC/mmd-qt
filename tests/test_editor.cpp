@@ -22,6 +22,7 @@ private slots:
     void themeSwitchRehighlights();
     void highlightingCanBeDetached();
     void gotoSourceLineMovesTheCaretWithoutFocus();
+    void currentLineHighlightUsesDedicatedColor();
 
 private:
     static QTextCharFormat formatAt(const QTextBlock &block, int position);
@@ -168,6 +169,23 @@ void EditorTest::gotoSourceLineMovesTheCaretWithoutFocus()
     // Moving the caret must not steal the focus: the click came from the
     // preview, which keeps it, so text there can still be selected and copied.
     QVERIFY(!editor.hasFocus());
+}
+
+void EditorTest::currentLineHighlightUsesDedicatedColor()
+{
+    const ThemeDefinition theme = ThemeDefinition::light();
+
+    MarkdownEditor editor;
+    editor.setTheme(theme);
+    editor.setMarkdown(QStringLiteral("```cpp\nint a;\nint b;\n```\n"));
+    // Park the caret on a line inside the fenced block: there the highlight used
+    // to vanish, painted with the very color of the block's background.
+    editor.moveCursor(QTextCursor::Start);
+    editor.moveCursor(QTextCursor::Down, QTextCursor::MoveAnchor);
+
+    const QList<QTextEdit::ExtraSelection> selections = editor.extraSelections();
+    QVERIFY(!selections.isEmpty());
+    QCOMPARE(selections.first().format.background().color(), theme.markdown.currentLine);
 }
 
 QTEST_MAIN(EditorTest)

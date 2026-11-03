@@ -125,6 +125,10 @@ Base: `QTextBrowser`. A release close to the press, not on a link, emits
 `sourceLineActivated` with `sourceLineAt(pos)`; a drag is left alone as a
 selection.
 
+Hovering shows the hand cursor over a link — in text or on an image badge,
+whose anchor the builder puts on the image format itself — and restores the
+text cursor on plain ground and when the mouse leaves the view.
+
 #### void paintEvent(QPaintEvent *event) [override]
 
 Base: `QTextBrowser`. Draws the copy button over the hovered code box.
