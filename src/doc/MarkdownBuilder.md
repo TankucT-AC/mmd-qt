@@ -130,6 +130,10 @@ markdown pass:
 - An HTML image block uses a plain block format, not the paragraph one. The
   122% line height meant for prose stretched an image's line by a fifth of the
   image, so every hero left a visible gap below it.
+- Every image format inside a link (`[![badge](pic.png)](url)`, `<a><img></a>`)
+  carries the anchor on its own char format. Hit tests read the format under
+  the cursor, so without it a badge link never shows the hand cursor and a
+  click on it does nothing.
 
 ## 16. Usage Example
 

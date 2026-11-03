@@ -45,6 +45,17 @@ QColor color(const QJsonObject &object, const QString &key)
     return value.isEmpty() ? QColor() : QColor(value);
 }
 
+QColor derivedCurrentLine(const QPalette &palette)
+{
+    // A hint of the highlight hue over the editing surface: visible on both the
+    // plain background and the code fill, without reading as a selection.
+    const QColor base = palette.color(QPalette::Base);
+    const QColor highlight = palette.color(QPalette::Highlight);
+    return QColor(base.red() + (highlight.red() - base.red()) / 7,
+                  base.green() + (highlight.green() - base.green()) / 7,
+                  base.blue() + (highlight.blue() - base.blue()) / 7);
+}
+
 constexpr QPalette::ColorGroup active = QPalette::Active;
 
 } // namespace
@@ -75,6 +86,9 @@ ThemeDefinition ThemeDefinition::light()
     theme.markdown.tableHeaderBackground = QColor(0xf3, 0xf4, 0xf6);
     theme.markdown.taskOpen = weak;
     theme.markdown.taskDone = QColor(0x1a, 0x7f, 0x37);
+    // A step towards blue: clearly distinct from the white base and from the
+    // gray code fill, so the active line stays findable inside a fence.
+    theme.markdown.currentLine = QColor(0xdb, 0xea, 0xfe);
 
     // GitHub-like syntax palette (light).
     theme.syntax.keyword = QColor(0xcf, 0x22, 0x2e);
@@ -118,6 +132,9 @@ ThemeDefinition ThemeDefinition::dark()
     theme.markdown.tableHeaderBackground = QColor(0x22, 0x27, 0x2e);
     theme.markdown.taskOpen = weak;
     theme.markdown.taskDone = QColor(0x3f, 0xb9, 0x50);
+    // Lighter and bluer than the code fill, so the caret's line stands out on
+    // both the plain background and inside a fenced block.
+    theme.markdown.currentLine = QColor(0x2b, 0x35, 0x46);
 
     // GitHub-like syntax palette (dark).
     theme.syntax.keyword = QColor(0xff, 0x7b, 0x72);
@@ -169,6 +186,7 @@ QJsonObject ThemeDefinition::toJson() const
     markdownObject.insert(QStringLiteral("tableHeaderBackground"), markdown.tableHeaderBackground.name());
     markdownObject.insert(QStringLiteral("taskOpen"), markdown.taskOpen.name());
     markdownObject.insert(QStringLiteral("taskDone"), markdown.taskDone.name());
+    markdownObject.insert(QStringLiteral("currentLine"), markdown.currentLine.name());
     object.insert(QStringLiteral("markdown"), markdownObject);
 
     QJsonObject syntaxObject;
@@ -227,6 +245,11 @@ std::optional<ThemeDefinition> ThemeDefinition::fromJson(const QJsonObject &obje
     theme.markdown.tableHeaderBackground = color(markdownObject, QStringLiteral("tableHeaderBackground"));
     theme.markdown.taskOpen = color(markdownObject, QStringLiteral("taskOpen"));
     theme.markdown.taskDone = color(markdownObject, QStringLiteral("taskDone"));
+
+    // The current-line tint arrived later than the rest; a missing entry falls
+    // back to a highlight-derived color instead of rejecting older themes.
+    const QColor storedCurrentLine = color(markdownObject, QStringLiteral("currentLine"));
+    theme.markdown.currentLine = storedCurrentLine.isValid() ? storedCurrentLine : derivedCurrentLine(theme.palette);
 
     // Syntax colors are optional in a theme file; when absent, derive them from
     // the palette's lightness so the code still fits the theme.

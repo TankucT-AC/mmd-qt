@@ -1225,6 +1225,16 @@ void Builder::insertImageElement(const QString &source, const QString &alt, Html
 {
     const QString path = ImageResolver::resolve(source, m_style.baseDir);
 
+    // An image wrapped in a link must carry the anchor itself: hover and click
+    // hit tests read the char format under the cursor, and an object format
+    // without one makes a GitHub-style badge inert.
+    const auto linkAnchor = [this](QTextCharFormat &format) {
+        if (!m_linkHref.isEmpty()) {
+            format.setAnchor(true);
+            format.setAnchorHref(m_linkHref);
+        }
+    };
+
     // An absolute width is capped by the image bound; a percentage asks for the
     // text column and is deliberately allowed past it, like a GitHub hero. The
     // column is the one the view actually has right now, falling back to the
@@ -1254,6 +1264,7 @@ void Builder::insertImageElement(const QString &source, const QString &alt, Html
             format.setProperty(MarkdownBuilder::imageAltKey, alt);
             if (desiredWidth > 0)
                 format.setWidth(desiredWidth);
+            linkAnchor(format);
             m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
             return;
         }
@@ -1282,6 +1293,7 @@ void Builder::insertImageElement(const QString &source, const QString &alt, Html
         QTextCharFormat format;
         format.setObjectType(MarkdownBuilder::gifObjectType);
         format.setProperty(MarkdownBuilder::gifPathKey, path);
+        linkAnchor(format);
         m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
         return;
     }
@@ -1319,6 +1331,7 @@ void Builder::insertImageElement(const QString &source, const QString &alt, Html
             format.setName(name);
             format.setWidth(display.width());
             format.setHeight(display.height());
+            linkAnchor(format);
             m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
             return;
         }
@@ -1343,6 +1356,7 @@ void Builder::insertImageElement(const QString &source, const QString &alt, Html
                 format.setName(name);
                 format.setWidth(display.width());
                 format.setHeight(display.height());
+                linkAnchor(format);
                 m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
                 return;
             }
@@ -1355,6 +1369,7 @@ void Builder::insertImageElement(const QString &source, const QString &alt, Html
         format.setWidth(display.width());
         format.setHeight(display.height());
     }
+    linkAnchor(format);
     m_cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
 }
 

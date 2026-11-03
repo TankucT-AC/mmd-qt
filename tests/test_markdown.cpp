@@ -48,6 +48,7 @@ private slots:
     void htmlPercentWidthFollowsTheLiveColumn();
     void htmlBlockImageIsNotStretchedToTheLineHeight();
     void standaloneBreakDoesNotMergeIntoTheNextImage();
+    void imageInsideALinkIsClickable();
     void htmlImageInsideCenteredDivIsCentered();
     void htmlParagraphAlignCentersMarkdownBlocks();
     void htmlTableCellsRenderTheirMarkdown();
@@ -1107,6 +1108,46 @@ void MarkdownTest::standaloneBreakDoesNotMergeIntoTheNextImage()
     // image and pushed a full-width image past the column).
     QVERIFY(!imageBlock.text().contains(QChar(0x2028)));
     QVERIFY(imageBlock.text().startsWith(QChar(QChar::ObjectReplacementCharacter)));
+}
+
+void MarkdownTest::imageInsideALinkIsClickable()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QImage image(48, 20, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(dir.filePath(QStringLiteral("pic.png"))));
+
+    // A badge wrapped in a link is the most common construct on GitHub profiles:
+    // the image itself must carry the anchor, or hovering it never shows the
+    // hand cursor and clicking it does nothing.
+    QTextDocument markdownDocument;
+    render(&markdownDocument, QStringLiteral("[![badge](pic.png)](https://example.com)\n"), dir.path());
+
+    QTextImageFormat linkedImage;
+    for (QTextBlock block = markdownDocument.firstBlock(); block.isValid() && linkedImage.name().isEmpty(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().isImageFormat())
+                linkedImage = it.fragment().charFormat().toImageFormat();
+        }
+    }
+    QVERIFY(!linkedImage.name().isEmpty());
+    QVERIFY(linkedImage.isAnchor());
+    QCOMPARE(linkedImage.anchorHref(), QStringLiteral("https://example.com"));
+
+    // The HTML spelling behaves the same.
+    QTextDocument htmlDocument;
+    render(&htmlDocument, QStringLiteral("<a href=\"https://example.com\"><img src=\"pic.png\" alt=\"badge\"></a>\n"), dir.path());
+
+    QTextImageFormat htmlImage;
+    for (QTextBlock block = htmlDocument.firstBlock(); block.isValid() && htmlImage.name().isEmpty(); block = block.next()) {
+        for (QTextBlock::Iterator it = block.begin(); !it.atEnd(); ++it) {
+            if (it.fragment().charFormat().isImageFormat())
+                htmlImage = it.fragment().charFormat().toImageFormat();
+        }
+    }
+    QVERIFY(htmlImage.isAnchor());
+    QCOMPARE(htmlImage.anchorHref(), QStringLiteral("https://example.com"));
 }
 
 void MarkdownTest::readmeRendersWithoutLiteralHtml()

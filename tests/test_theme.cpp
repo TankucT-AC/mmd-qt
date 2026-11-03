@@ -29,6 +29,8 @@ private slots:
     void malformedColorIsRejected();
     void kdeSchemeIsParsed();
     void incompleteSchemeIsRejected();
+    void currentLineIsDistinctFromEveryBackground();
+    void currentLineIsOptionalInThemeFiles();
 
 private:
     static bool setPlatformScheme(Qt::ColorScheme scheme);
@@ -60,7 +62,8 @@ void ThemeTest::builtinThemesAreComplete()
                                     colors.tableBorder,
                                     colors.tableHeaderBackground,
                                     colors.taskOpen,
-                                    colors.taskDone}) {
+                                    colors.taskDone,
+                                    colors.currentLine}) {
             QVERIFY2(color.isValid(), qPrintable(theme.name + QStringLiteral(": unset markdown color")));
         }
     }
@@ -133,6 +136,7 @@ void ThemeTest::customThemeRoundTripsThroughJson()
     QCOMPARE(restored->name, original.name);
     QCOMPARE(restored->syntaxThemeName, original.syntaxThemeName);
     QCOMPARE(restored->markdown.link, original.markdown.link);
+    QCOMPARE(restored->markdown.currentLine, original.markdown.currentLine);
     QCOMPARE(restored->palette.color(QPalette::Window), original.palette.color(QPalette::Window));
 }
 
@@ -156,6 +160,33 @@ void ThemeTest::malformedColorIsRejected()
     json.insert(QStringLiteral("markdown"), markdown);
 
     QVERIFY(!ThemeDefinition::fromJson(json).has_value());
+}
+
+void ThemeTest::currentLineIsDistinctFromEveryBackground()
+{
+    for (const ThemeDefinition &theme : {ThemeDefinition::light(), ThemeDefinition::dark()}) {
+        QVERIFY2(theme.markdown.currentLine.isValid(), qPrintable(theme.name + QStringLiteral(": currentLine unset")));
+        // It used to share codeBackground, so the active line vanished inside a
+        // fenced block. It must stand out on the plain background too.
+        QVERIFY2(theme.markdown.currentLine != theme.markdown.codeBackground, qPrintable(theme.name + QStringLiteral(": currentLine equals codeBackground")));
+        QVERIFY2(theme.markdown.currentLine != theme.palette.color(QPalette::Base), qPrintable(theme.name + QStringLiteral(": currentLine equals the base")));
+        QVERIFY2(theme.markdown.currentLine != theme.palette.color(QPalette::Window),
+                 qPrintable(theme.name + QStringLiteral(": currentLine equals the window")));
+    }
+}
+
+void ThemeTest::currentLineIsOptionalInThemeFiles()
+{
+    // Themes written before the role existed must still load.
+    QJsonObject json = ThemeDefinition::light().toJson();
+    QJsonObject markdown = json.value(QStringLiteral("markdown")).toObject();
+    markdown.remove(QStringLiteral("currentLine"));
+    json.insert(QStringLiteral("markdown"), markdown);
+
+    const std::optional<ThemeDefinition> restored = ThemeDefinition::fromJson(json);
+    QVERIFY(restored.has_value());
+    QVERIFY(restored->markdown.currentLine.isValid());
+    QVERIFY(restored->markdown.currentLine != restored->markdown.codeBackground);
 }
 
 void ThemeTest::kdeSchemeIsParsed()

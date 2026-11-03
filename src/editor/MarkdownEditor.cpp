@@ -132,7 +132,7 @@ void MarkdownEditor::applyExtraSelections()
     QList<QTextEdit::ExtraSelection> selections;
 
     QTextEdit::ExtraSelection currentLine;
-    currentLine.format.setBackground(m_theme.markdown.codeBackground);
+    currentLine.format.setBackground(m_theme.markdown.currentLine);
     currentLine.format.setProperty(QTextFormat::FullWidthSelection, true);
     currentLine.cursor = textCursor();
     currentLine.cursor.clearSelection();
