@@ -3,6 +3,7 @@
 
 #include <QtTest>
 
+#include "core/FontManager.h"
 #include "core/MarkdownBuilder.h"
 #include "core/MathRenderer.h"
 #include "viewer/MathObjectHandler.h"
@@ -334,7 +335,10 @@ void MathTest::handlerTypesetsAtTheTextSize()
     // with the same letter from the text font, on the same device, catches a
     // formula set at the wrong em size without hard-coding any font metric.
     MathObjectHandler handler;
-    QFont body;
+    // Pin the reference to the bundled Inter: a CI container may have no
+    // system fonts at all, and the default fallback there drew the text a
+    // hair taller than the formula even though the sizes matched.
+    QFont body = FontManager().bodyFont();
     body.setPointSizeF(12);
     handler.setBodyFont(body);
     // What MarkdownView passes: the body font's em in device-independent
@@ -362,7 +366,8 @@ void MathTest::handlerTypesetsAtTheTextSize()
     // Reference: the same letter drawn by the text font. Inter and Computer
     // Modern have slightly different cap-height ratios, so the two agree within
     // about a tenth when the sizes match -- and are a fifth apart when the
-    // formula is set at two thirds of the text size.
+    // formula is set at two thirds of the text size. Antialiasing can shift
+    // an ink measurement by a row, so the tolerance never drops below 2px.
     QImage reference(80, 60, QImage::Format_ARGB32_Premultiplied);
     reference.fill(Qt::white);
     {
@@ -374,7 +379,7 @@ void MathTest::handlerTypesetsAtTheTextSize()
     const int formulaInk = inkHeight(image);
     const int textInk = inkHeight(reference);
     QVERIFY(formulaInk > 0 && textInk > 0);
-    QVERIFY2(qAbs(formulaInk - textInk) <= qRound(textInk * 0.12),
+    QVERIFY2(qAbs(formulaInk - textInk) <= qMax(2, qRound(textInk * 0.12)),
              qPrintable(QStringLiteral("formula is %1px tall, the text is %2px").arg(formulaInk).arg(textInk)));
 }
 
