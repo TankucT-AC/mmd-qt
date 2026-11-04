@@ -64,11 +64,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build the package
+        working-directory: packaging/arch
         run: |
           chown -R builder:builder "$GITHUB_WORKSPACE"
-          # -s lets makepkg install the PKGBUILD's own depends and makedepends,
-          # so this file is the single list of what a builder needs.
-          sudo -u builder bash -lc 'cd "$GITHUB_WORKSPACE/packaging/arch" && makepkg -sf --noconfirm'
+          # sudo resets the environment, so $GITHUB_WORKSPACE is empty inside
+          # the builder's shell; makepkg runs from this step's own directory.
+          sudo -u builder makepkg -sf --noconfirm
 
       - name: Smoke-test the package
         run: |
