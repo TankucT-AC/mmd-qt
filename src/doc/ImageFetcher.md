@@ -59,7 +59,7 @@ When disabled, `fetch()` does nothing and nothing touches the network.
 #### void setCacheDirectory(const QString &path)
 
 Overrides the disk cache directory. The default is
-`<user cache>/mmd-qt/remote-images`. Tests point it at a temporary directory.
+`<user cache>/total-markdown/remote-images`. Tests point it at a temporary directory.
 
 #### void setRequestTimeoutMs(int ms) / setMaximumBytes(qint64) / setMaximumRedirects(int) / setConcurrentRequestLimit(int) / setPrivateNetworkAllowed(bool) / setDevicePixelRatio(qreal)
 

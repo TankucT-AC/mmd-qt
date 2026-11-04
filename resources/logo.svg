@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- SPDX-FileCopyrightText: 2026 mmd-qt contributors -->
+<!-- SPDX-FileCopyrightText: 2026 Total Markdown contributors -->
 <!-- SPDX-License-Identifier: CC0-1.0 -->
 <!--
-  mmd-qt app icon: a two-pane glyph — a rounded tile split into a "source"
+  Total Markdown app icon: a two-pane glyph — a rounded tile split into a "source"
   half (dim code lines) and a "preview" half (an accent panel), the essence of
   the application. Palette: surface #16191f, dim #8b949e, accent #58a6ff.
 

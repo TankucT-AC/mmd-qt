@@ -1,4 +1,4 @@
-# Styleguide: how mmd-qt is built
+# Styleguide: how Total Markdown is built
 
 This guide is about the **architecture and process** of the project, not about
 any single widget. It is a description of what actually runs, with links to the
@@ -201,7 +201,7 @@ cmake --build --preset gcc-debug && ctest --preset gcc-debug   # tests
 
 clang-format -i <files>                                        # formatting
 
-QT_QPA_PLATFORM=offscreen ./out/gcc-debug/src/mmd sample.md    # smoke, no monitor
+QT_QPA_PLATFORM=offscreen ./out/gcc-debug/src/total-markdown sample.md    # smoke, no monitor
 
 cmake --preset clang-release && cmake --build --preset clang-release && ctest --preset clang-release
 ```

@@ -2,7 +2,7 @@
 
 ## 1. Class Overview
 
-mmd-qt renders markdown by converting the source directly into a `QTextDocument`
+Total Markdown renders markdown by converting the source directly into a `QTextDocument`
 rather than to HTML. `MarkdownBuilder` is that converter, and it is the heart of
 the preview pipeline.
 

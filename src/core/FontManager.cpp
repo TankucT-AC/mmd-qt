@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-FileCopyrightText: 2026 Total Markdown contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/FontManager.h"
@@ -67,7 +67,7 @@ QStringList FontManager::ensureBundledFontsLoaded()
     for (const QString &path : resources) {
         const int id = QFontDatabase::addApplicationFont(path);
         if (id < 0)
-            qWarning("mmd: failed to load bundled font %s", qPrintable(path));
+            qWarning("total-markdown: failed to load bundled font %s", qPrintable(path));
     }
 
     loaded = true;

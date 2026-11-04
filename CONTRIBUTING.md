@@ -1,8 +1,8 @@
 <div align="center">
 
-# Contributing to mmd-qt
+# Contributing to Total Markdown
 
-**Thank you for taking the time to improve mmd-qt.**
+**Thank you for taking the time to improve Total Markdown.**
 
 </div>
 
@@ -53,7 +53,7 @@ design can be agreed before you invest time in it.
 
 ## Licensing rules (mandatory)
 
-mmd-qt is licensed under **GPL-3.0-or-later** (see [`LICENSE`](LICENSE)). The
+Total Markdown is licensed under **GPL-3.0-or-later** (see [`LICENSE`](LICENSE)). The
 repository also ships third-party material that keeps its own license:
 
 | Component | Location | License |
@@ -104,8 +104,8 @@ The reasoning behind these is in [`STYLEGUIDE.md`](STYLEGUIDE.md).
 ## Getting started
 
 ```sh
-git clone git@github.com:TankucT-AC/mmd-qt.git
-cd mmd-qt
+git clone git@github.com:TankucT-AC/total-markdown.git
+cd total-markdown
 
 cmake --preset gcc-debug
 cmake --build --preset gcc-debug
@@ -139,7 +139,7 @@ a test that would have failed before it.
 5. **Smoke-test GUI changes** without a monitor:
 
    ```sh
-   QT_QPA_PLATFORM=offscreen ./out/gcc-debug/src/mmd feature-showcase.md
+   QT_QPA_PLATFORM=offscreen ./out/gcc-debug/src/total-markdown feature-showcase.md
    # exercise the feature, then quit; no crashes and no warnings in the log
    ```
 
@@ -210,7 +210,7 @@ Please open an issue and include the following (a minimal, self-contained
 reproduction is the single most useful thing you can provide):
 
 - **Bug:** what you did, what you expected, what happened; your OS, Qt version
-  and the exact `mmd-qt` revision; and, if relevant, the markdown snippet that
+  and the exact `Total Markdown` revision; and, if relevant, the markdown snippet that
   reproduces it.
 - **Feature:** the problem you are trying to solve, the idea, and any
   alternatives you considered.

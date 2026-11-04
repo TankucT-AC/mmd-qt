@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: 2026 mmd-qt contributors
+# SPDX-FileCopyrightText: 2026 Total Markdown contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 cmake_minimum_required(VERSION 3.24)
 
 include(GNUInstallDirs)
 
-project(mmd-qt
+project(total-markdown
     VERSION 0.2.0
-    DESCRIPTION "Two-pane Markdown viewer and editor built with Qt Widgets"
+    DESCRIPTION "Total Markdown — a two-pane Markdown viewer and editor built with Qt Widgets"
     LANGUAGES C CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -57,18 +57,18 @@ add_subdirectory(tests)
 # ---------------------------------------------------------------------------
 # Desktop integration + packaging
 # ---------------------------------------------------------------------------
-install(FILES packaging/mmd-qt.desktop
+install(FILES packaging/total-markdown.desktop
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
 # Every size the app ships, so a desktop that ignores the scalable icon still
 # gets an exact match instead of a scaled bitmap.
 foreach(_icon_size 16 24 32 48 64 128 256)
     install(FILES "resources/logo-${_icon_size}.png"
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps
-        RENAME mmd-qt.png)
+        RENAME total-markdown.png)
 endforeach()
 install(FILES resources/logo.svg
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
-    RENAME mmd-qt.svg)
+    RENAME total-markdown.svg)
 
 # The KSyntaxHighlighting library is only the engine: the language definitions
 # live in a data directory it loads at runtime. Bundle that too, next to the
@@ -92,13 +92,13 @@ foreach(_candidate IN LISTS _ksyntax_candidates)
     if(EXISTS "${_candidate}")
         install(DIRECTORY "${_candidate}/"
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/org.kde.syntax-highlighting")
-        message(STATUS "mmd-qt: bundling syntax definitions from ${_candidate}")
+        message(STATUS "total-markdown: bundling syntax definitions from ${_candidate}")
         set(_ksyntax_bundled TRUE)
         break()
     endif()
 endforeach()
 if(NOT _ksyntax_bundled)
-    message(WARNING "mmd-qt: KSyntaxHighlighting syntax definitions not found; "
+    message(WARNING "total-markdown: KSyntaxHighlighting syntax definitions not found; "
         "the package will ship the engine without language definitions")
 endif()
 
@@ -106,18 +106,18 @@ endif()
 # the glyph outlines from res/fonts at run time. MathRenderer looks for the
 # directory relative to the executable's data root, which is where this puts it.
 install(DIRECTORY third_party/microtex/res
-    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/mmd-qt/microtex)
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/total-markdown/microtex)
 
 # A minimal Debian package: `cmake --build ... && cpack -G DEB`.
 # Note: dpkg-shlibdeps cannot run here (the build host is not Debian-based), so
 # the runtime dependencies are listed by hand. KSyntaxHighlighting is bundled
 # (see src/CMakeLists.txt), so only Qt is required on the target.
-set(CPACK_PACKAGE_NAME "mmd-qt")
+set(CPACK_PACKAGE_NAME "total-markdown")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
-set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/TankucT-AC/mmd-qt")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/TankucT-AC/total-markdown")
 set(CPACK_PACKAGE_CONTACT "Magomed Gadzhiumarov <magomedgadziumarov265@gmail.com>")
-set(CPACK_PACKAGE_VENDOR "mmd-qt contributors")
+set(CPACK_PACKAGE_VENDOR "Total Markdown contributors")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")

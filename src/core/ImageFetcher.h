@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-FileCopyrightText: 2026 Total Markdown contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
@@ -38,7 +38,7 @@ public:
     bool isEnabled() const;
 
     // Overrides the disk cache directory (tests point it at a temporary dir);
-    // the default is <user cache>/mmd-qt/remote-images.
+    // the default is <user cache>/total-markdown/remote-images.
     void setCacheDirectory(const QString &path);
 
     // Guard rail knobs. Production code keeps the defaults; tests shrink them

@@ -1,16 +1,16 @@
-# mmd-qt feature showcase
+# Total Markdown feature showcase
 
 A single document that exercises every markdown feature the viewer renders:
 typography, lists, quotes, code, tables, links, images and animated pictures.
 
-> **How to use it:** open this file in mmd-qt and scroll. Anything that looks
+> **How to use it:** open this file in Total Markdown and scroll. Anything that looks
 > wrong here is a rendering bug worth reporting.
 
 ---
 
 ## 1. Typography
 
-mmd-qt renders prose in **Inter** and code in **JetBrains Mono**. Headings follow
+Total Markdown renders prose in **Inter** and code in **JetBrains Mono**. Headings follow
 a modular scale, so each level is proportionally smaller than the one above it.
 
 # Heading level 1
@@ -110,7 +110,7 @@ Fenced, JSON:
 
 ```json
 {
-  "name": "mmd-qt",
+  "name": "Total Markdown",
   "qt": "6.12.0",
   "features": ["live preview", "syntax highlighting", "themes"]
 }
@@ -165,7 +165,7 @@ Relative link: [the styleguide](STYLEGUIDE.md) and [contributing](CONTRIBUTING.m
 
 Static PNG (relative path):
 
-![mmd-qt logo](resources/logo.svg)
+![Total Markdown logo](resources/logo.svg)
 
 JPEG:
 
@@ -194,7 +194,7 @@ A missing image (placeholder is expected):
 ## 8. Video
 
 Markdown has **no native video element**, so there is nothing standard to embed.
-mmd-qt shows raw HTML as literal text, so this tag stays visible as source:
+Total Markdown shows raw HTML as literal text, so this tag stays visible as source:
 
 <video src="assets/clip.mp4" poster="assets/photo.jpg" controls></video>
 

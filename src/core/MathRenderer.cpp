@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-FileCopyrightText: 2026 Total Markdown contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/MathRenderer.h"
@@ -48,7 +48,7 @@ QString MathRenderer::resourceDirectory()
 {
     const QString base = QCoreApplication::applicationDirPath();
     const QStringList candidates = {
-        base + QStringLiteral("/../share/mmd-qt/microtex/res"), // installed
+        base + QStringLiteral("/../share/total-markdown/microtex/res"), // installed
         base + QStringLiteral("/../third_party/microtex/res"), // build tree
         base + QStringLiteral("/microtex/res"), // a self-contained bundle
     };

@@ -2,7 +2,7 @@
 
 ## 1. Class Overview
 
-Everything visual in mmd-qt is described semantically: not "gray #6e7781" but
+Everything visual in Total Markdown is described semantically: not "gray #6e7781" but
 "weak text". `ThemeDefinition` is that description — one value that carries the
 application palette, the markdown-specific roles the renderer needs, and the
 name of the syntax-highlighting theme used for code.

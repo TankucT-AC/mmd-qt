@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-FileCopyrightText: 2026 Total Markdown contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "app/MainWindow.h"
@@ -22,14 +22,14 @@ static QIcon appIcon()
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    QApplication::setApplicationName(QStringLiteral("mmd"));
-    QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
-    QApplication::setOrganizationName(QStringLiteral("mmd-qt"));
+    QApplication::setApplicationName(QStringLiteral("total-markdown"));
+    QApplication::setApplicationVersion(QStringLiteral("0.2.0"));
+    QApplication::setOrganizationName(QStringLiteral("total-markdown"));
     QApplication::setStyle(QStringLiteral("Fusion"));
     QApplication::setWindowIcon(appIcon());
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Two-pane Markdown viewer and editor"));
+    parser.setApplicationDescription(QStringLiteral("Total Markdown — a two-pane Markdown viewer and editor"));
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument(QStringLiteral("file"), QStringLiteral("Markdown file to open."), QStringLiteral("[file]"));

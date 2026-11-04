@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="resources/logo-256.png" alt="mmd-qt logo" width="120" />
+<img src="resources/logo-256.png" alt="Total Markdown logo" width="120" />
 
-# mmd-qt
+# Total Markdown
 
 **A fast, native, two-pane Markdown viewer and editor — plain Qt 6 Widgets, no web engine.**
 
@@ -16,7 +16,7 @@
 
 ---
 
-`mmd-qt` opens instantly and re-renders as you type. It is one monolithic
+`Total Markdown` opens instantly and re-renders as you type. It is one monolithic
 desktop application built on Qt Widgets (`QPainter`, `QTextDocument`,
 `QPlainTextEdit`) — **no Electron, no Qt WebEngine, no QML**. Markdown is
 parsed by [md4c](https://github.com/mity/md4c) straight into a `QTextDocument`,
@@ -85,15 +85,15 @@ native.
 ## Getting started
 
 ```sh
-git clone git@github.com:TankucT-AC/mmd-qt.git
-cd mmd-qt
+git clone git@github.com:TankucT-AC/total-markdown.git
+cd total-markdown
 
 cmake --preset gcc-debug
 cmake --build --preset gcc-debug
 ctest --preset gcc-debug
 
-./out/gcc-debug/src/mmd                 # empty window
-./out/gcc-debug/src/mmd feature-showcase.md
+./out/gcc-debug/src/total-markdown                 # empty window
+./out/gcc-debug/src/total-markdown feature-showcase.md
 ```
 
 A release build with a second compiler is one more step:
@@ -114,7 +114,7 @@ A minimal Debian package is built with CPack:
 ```sh
 cmake --preset gcc-release
 cmake --build --preset gcc-release
-cd out/gcc-release && cpack -G DEB        # mmd-qt_<version>_amd64.deb
+cd out/gcc-release && cpack -G DEB        # total-markdown_<version>_amd64.deb
 ```
 
 It installs the executable, the icon and `.desktop` entry, and — because KDE's
@@ -133,9 +133,9 @@ therefore depends only on Qt 6.
 ## Usage
 
 ```sh
-mmd                      # start empty
-mmd notes.md             # open a file
-mmd --preview notes.md   # open with the source pane hidden
+total-markdown                      # start empty
+total-markdown notes.md             # open a file
+total-markdown --preview notes.md   # open with the source pane hidden
 ```
 
 | Shortcut | Action |
@@ -249,7 +249,7 @@ verify with both compilers.
 
 ## Acknowledgements
 
-`mmd-qt` stands on the work of others:
+`Total Markdown` stands on the work of others:
 
 | Project | Role | License |
 |---|---|---|

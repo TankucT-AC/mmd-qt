@@ -2,7 +2,7 @@
 
 ## 1. Class Overview
 
-`SystemThemeProvider` lets mmd-qt follow the desktop's own colours the way
+`SystemThemeProvider` lets Total Markdown follow the desktop's own colours the way
 Dolphin does, without giving up portability. It reads KDE colour-scheme files
 (the `*.colors` files Plasma apps use) from the standard locations and turns
 them into `ThemeDefinition` values.

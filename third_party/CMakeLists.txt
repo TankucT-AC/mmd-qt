@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 mmd-qt contributors
+# SPDX-FileCopyrightText: 2026 Total Markdown contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Vendored third-party code. Every directory keeps the upstream license file
