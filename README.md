@@ -115,7 +115,8 @@ Alpha releases ship native packages from the
 - **Debian-based** — `total-markdown_*_amd64.deb`:
   `sudo apt install ./total-markdown_0.2.0~alpha1_amd64.deb`.
   Built on Debian 13 and needs a distribution carrying KDE Frameworks 6
-  (Debian 13, Ubuntu 25.04+); it depends on the system `ksyntaxhighlighting`.
+  (Debian 13, Ubuntu 25.04+); it depends on the system KF6 syntax-highlighting
+  (`libkf6syntaxhighlighting6` / Arch `syntax-highlighting`).
 - **Arch-based** — `total-markdown-*-x86_64.pkg.tar.zst`:
   `sudo pacman -U ./total-markdown-…-x86_64.pkg.tar.zst`; the
   [`PKGBUILD`](packaging/arch/PKGBUILD) builds from the release tag.

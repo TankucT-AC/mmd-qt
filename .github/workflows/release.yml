@@ -31,11 +31,18 @@ jobs:
       - name: Build the package
         run: dpkg-buildpackage -us -uc -b
 
+      - name: Collect the package
+        run: |
+          # dpkg-buildpackage puts the results in the parent directory, which
+          # upload-artifact refuses to reach; move the .deb into the tree.
+          mkdir dist
+          mv ../*.deb dist/
+
       - name: Upload the package
         uses: actions/upload-artifact@v4
         with:
           name: total-markdown-deb
-          path: ../*.deb
+          path: dist/*.deb
           if-no-files-found: error
 
   arch:
@@ -46,7 +53,7 @@ jobs:
       - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed cmake ninja git qt6-base qt6-svg ksyntaxhighlighting
+          pacman -S --noconfirm --needed git
 
       - name: Create an unprivileged build user
         run: |
@@ -59,7 +66,9 @@ jobs:
       - name: Build the package
         run: |
           chown -R builder:builder "$GITHUB_WORKSPACE"
-          sudo -u builder bash -lc 'cd "$GITHUB_WORKSPACE/packaging/arch" && makepkg -f --noconfirm'
+          # -s lets makepkg install the PKGBUILD's own depends and makedepends,
+          # so this file is the single list of what a builder needs.
+          sudo -u builder bash -lc 'cd "$GITHUB_WORKSPACE/packaging/arch" && makepkg -sf --noconfirm'
 
       - name: Smoke-test the package
         run: |
