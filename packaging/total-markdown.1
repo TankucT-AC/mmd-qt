@@ -1,0 +1,49 @@
+'\" t
+.TH TOTAL\-MARKDOWN 1 "2026\-11\-04" "total\-markdown 0.2.0" "User Commands"
+.SH NAME
+total\-markdown \- a fast, native, two\-pane Markdown viewer and editor
+.SH SYNOPSIS
+.B total\-markdown
+.RI [ options ]
+.RI [ file ]
+.SH DESCRIPTION
+.B Total Markdown
+opens a Markdown document in two panes: the source, syntax highlighted, on
+the left and the rendered preview on the right, both kept in step while you
+type. It is built on Qt Widgets only — no web engine — and parses Markdown
+with md4c straight into a
+.B QTextDocument.
+.PP
+Rendered documents support CommonMark and GitHub Flavored Markdown (tables,
+task lists, strikethrough, autolinks), fenced code blocks highlighted by
+KDE's KSyntaxHighlighting, LaTeX formulas typeset by the bundled MicroTeX
+engine, images resolved relative to the document, remote images downloaded
+in the background and cached on disk, animated GIF and SVG badges, and a
+size policy that keeps very large documents responsive.
+.PP
+If
+.I file
+is given, it is opened at startup.
+.SH OPTIONS
+.TP
+.B \-\-preview
+Open with the source pane hidden, preview only.
+.TP
+.B \-h, \-\-help
+Print a help message and exit.
+.TP
+.B \-v, \-\-version
+Print the version and exit.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/total-markdown/total-markdown.conf
+User settings: theme, fonts, pane layout.
+.TP
+.I $XDG_CACHE_HOME/total-markdown/remote-images
+Disk cache for downloaded remote images.
+.SH SEE ALSO
+The project documentation:
+.UR https://github.com/TankucT-AC/total-markdown
+.UE .
+.SH AUTHOR
+Magomed Gadzhiumarov <magomedgadziumarov265@gmail.com>

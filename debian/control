@@ -1,0 +1,33 @@
+Source: total-markdown
+Section: editors
+Priority: optional
+Maintainer: Magomed Gadzhiumarov <magomedgadziumarov265@gmail.com>
+Build-Depends:
+ cmake (>= 3.24),
+ debhelper-compat (= 13),
+ libkf6syntaxhighlighting-dev,
+ qt6-base-dev,
+ qt6-svg-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://github.com/TankucT-AC/total-markdown
+Vcs-Git: https://github.com/TankucT-AC/total-markdown.git
+Vcs-Browser: https://github.com/TankucT-AC/total-markdown
+
+Package: total-markdown
+Architecture: amd64
+Depends:
+ libkf6syntaxhighlighting6,
+ ${misc:Depends},
+ ${shlibs:Depends}
+Description: two-pane Markdown viewer and editor built with Qt Widgets
+ Total Markdown opens a Markdown document in two panes: the source, syntax
+ highlighted, on the left and the rendered preview on the right, both kept in
+ step while you type. It is built on Qt Widgets only — no web engine — which
+ keeps the startup instant and the rendering fully native.
+ .
+ Documents support CommonMark and GitHub Flavored Markdown (tables, task
+ lists, strikethrough, autolinks), fenced code blocks highlighted per language
+ by KDE's KSyntaxHighlighting, LaTeX formulas typeset by the bundled MicroTeX
+ engine, images resolved relative to the document, remote images downloaded in
+ the background and cached on disk, and animated GIF and SVG badges.

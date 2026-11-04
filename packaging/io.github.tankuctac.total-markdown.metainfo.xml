@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Total Markdown contributors -->
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+<component type="desktop-application">
+  <id>io.github.tankuctac.total-markdown</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Total Markdown</name>
+  <summary>A fast, native, two-pane Markdown viewer and editor</summary>
+  <description>
+    <p>Total Markdown opens a Markdown document in two panes: the source, syntax
+    highlighted, on the left and the rendered preview on the right, both kept in
+    step while you type. It is built on Qt Widgets only — no web engine — which
+    keeps the startup instant and the rendering fully native.</p>
+    <p>Documents support CommonMark and GitHub Flavored Markdown (tables, task
+    lists, strikethrough, autolinks), fenced code blocks highlighted per language
+    by KDE's KSyntaxHighlighting, LaTeX formulas typeset by the bundled MicroTeX
+    engine, images resolved relative to the document, remote images downloaded in
+    the background and cached on disk, and animated GIF and SVG badges. Themes
+    come as light, dark, follow-system and any JSON file; a size policy keeps very
+    large documents responsive.</p>
+  </description>
+  <launchable type="desktop-id">total-markdown.desktop</launchable>
+  <url type="homepage">https://github.com/TankucT-AC/total-markdown</url>
+  <url type="bugtracker">https://github.com/TankucT-AC/total-markdown/issues</url>
+  <developer id="io.github.tankuctac">
+    <name>Magomed Gadzhiumarov</name>
+  </developer>
+  <provides>
+    <binary>total-markdown</binary>
+  </provides>
+  <releases>
+    <release version="0.2.0-alpha1" date="2026-11-04">
+      <description>
+        <p>First public alpha: two-pane live preview, CommonMark and GFM,
+        syntax-highlighted code fences, LaTeX math, light/dark/system themes,
+        remote images with a disk cache, and animated badge playback.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

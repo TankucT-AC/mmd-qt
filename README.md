@@ -109,18 +109,31 @@ the editor tooling finds the compilation database out of the box.
 
 ## Packaging
 
-A minimal Debian package is built with CPack:
+Alpha releases ship native packages from the
+[releases page](https://github.com/TankucT-AC/total-markdown/releases):
+
+- **Debian-based** — `total-markdown_*_amd64.deb`:
+  `sudo apt install ./total-markdown_0.2.0~alpha1_amd64.deb`.
+  Built on Debian 13 and needs a distribution carrying KDE Frameworks 6
+  (Debian 13, Ubuntu 25.04+); it depends on the system `ksyntaxhighlighting`.
+- **Arch-based** — `total-markdown-*-x86_64.pkg.tar.zst`:
+  `sudo pacman -U ./total-markdown-…-x86_64.pkg.tar.zst`; the
+  [`PKGBUILD`](packaging/arch/PKGBUILD) builds from the release tag.
+
+Both packages install the executable, icons, the `.desktop` entry, a man page
+and the AppStream metadata, and depend on the system KSyntaxHighlighting
+(`MMD_BUNDLE_KSYNTAX=OFF`) — a native package must not ship a second copy of
+a library the distribution already has.
+
+For distributions without a KF6 package (Ubuntu 24.04 LTS, for one), the
+portable CPack build bundles the engine **and** its syntax definitions, so the
+package depends only on Qt 6:
 
 ```sh
 cmake --preset gcc-release
 cmake --build --preset gcc-release
 cd out/gcc-release && cpack -G DEB        # total-markdown_<version>_amd64.deb
 ```
-
-It installs the executable, the icon and `.desktop` entry, and — because KDE's
-KSyntaxHighlighting is not packaged on every distribution (Ubuntu 24.04 LTS, for
-one) — it also bundles that library **and** its syntax definitions. The package
-therefore depends only on Qt 6.
 
 > [!IMPORTANT]
 > **Portability caveat.** The binary is built against *this* machine's Qt, so it

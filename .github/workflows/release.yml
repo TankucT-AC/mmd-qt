@@ -1,0 +1,104 @@
+# Builds the alpha release packages and attaches them to the GitHub release
+# of the pushed tag. The Debian package is produced on Debian 13 (trixie) —
+# the oldest line that carries KF6, which the distro packages depend on; the
+# Arch package is built by the very PKGBUILD an AUR user would run.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  debian:
+    name: Debian package (trixie)
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential debhelper cmake ca-certificates git \
+            qt6-base-dev qt6-svg-dev libkf6syntaxhighlighting-dev
+
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+
+      - name: Build the package
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-markdown-deb
+          path: ../*.deb
+          if-no-files-found: error
+
+  arch:
+    name: Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed cmake ninja git qt6-base qt6-svg ksyntaxhighlighting
+
+      - name: Create an unprivileged build user
+        run: |
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+
+      - name: Build the package
+        run: |
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          sudo -u builder bash -lc 'cd "$GITHUB_WORKSPACE/packaging/arch" && makepkg -f --noconfirm'
+
+      - name: Smoke-test the package
+        run: |
+          pacman -U --noconfirm packaging/arch/*.pkg.tar.zst
+          QT_QPA_PLATFORM=offscreen total-markdown --version
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-markdown-pkg
+          path: packaging/arch/*.pkg.tar.zst
+          if-no-files-found: error
+
+  release:
+    name: Publish the GitHub release
+    needs: [debian, arch]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          {
+            echo "Total Markdown $version — first alpha."
+            echo
+            echo "### Packages"
+            echo
+            echo "- Debian-based: sudo apt install ./total-markdown_*_amd64.deb (Debian 13+, Ubuntu 25.04+ — needs the KF6 syntax-highlighting runtime)"
+            echo "- Arch-based: sudo pacman -U total-markdown-*x86_64.pkg.tar.zst"
+            echo
+            echo "For distributions without a KF6 package (Ubuntu 24.04 LTS, for one), build the portable CPack package from source: it bundles the KSyntaxHighlighting engine."
+            echo
+            echo "This is an alpha — interfaces and file formats may still change. Feedback: https://github.com/TankucT-AC/total-markdown/issues"
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "Total Markdown $version" --notes-file notes.md dist/*
