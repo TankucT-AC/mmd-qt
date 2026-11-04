@@ -7,7 +7,7 @@ pkgdesc="A fast, native, two-pane Markdown viewer and editor"
 arch=('x86_64')
 url="https://github.com/TankucT-AC/total-markdown"
 license=('GPL3')
-depends=('qt6-base' 'qt6-svg' 'ksyntaxhighlighting')
+depends=('qt6-base' 'qt6-svg' 'syntax-highlighting')
 makedepends=('cmake' 'ninja' 'git')
 source=("git+https://github.com/TankucT-AC/total-markdown.git#tag=v0.2.0-alpha1")
 sha256sums=('SKIP')
