@@ -29,6 +29,14 @@ endif()
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Test Svg Network)
 find_package(KF6SyntaxHighlighting 6.0 REQUIRED)
 
+# Portable builds (the CPack package) ship KDE's KSyntaxHighlighting engine and
+# its syntax definitions next to the executable, so a distribution without a
+# KF6 package still works. Native distro packages set this OFF and depend on
+# the system copy instead — bundling would clash with their own files.
+option(MMD_BUNDLE_KSYNTAX
+    "Bundle the KSyntaxHighlighting engine and syntax definitions (distro packages set this OFF)"
+    ON)
+
 # Strict warnings for this project's own translation units. They are attached as
 # an INTERFACE target and linked PUBLIC, so tests and the executable inherit
 # them; Qt/KF6 headers stay system headers and are not affected.
@@ -69,12 +77,17 @@ endforeach()
 install(FILES resources/logo.svg
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
     RENAME total-markdown.svg)
+install(FILES packaging/total-markdown.1
+    DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
+install(FILES packaging/io.github.tankuctac.total-markdown.metainfo.xml
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/metainfo)
 
 # The KSyntaxHighlighting library is only the engine: the language definitions
 # live in a data directory it loads at runtime. Bundle that too, next to the
 # usual location, so highlighting works without the distro package.
 # The imported target's location property is named differently across distros
 # (RELEASE / NOCONFIG / ...), so try them all, then the usual prefixes.
+if(MMD_BUNDLE_KSYNTAX)
 set(_ksyntax_candidates)
 foreach(_prop IMPORTED_LOCATION_RELEASE IMPORTED_LOCATION_NOCONFIG IMPORTED_LOCATION IMPORTED_LOCATION_DEBUG)
     get_target_property(_kf6_lib KF6::SyntaxHighlighting ${_prop})
@@ -100,6 +113,7 @@ endforeach()
 if(NOT _ksyntax_bundled)
     message(WARNING "total-markdown: KSyntaxHighlighting syntax definitions not found; "
         "the package will ship the engine without language definitions")
+endif()
 endif()
 
 # LaTeX formulas: the vendored MicroTeX keeps its metrics compiled in, but loads

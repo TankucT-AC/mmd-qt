@@ -1,0 +1,7 @@
+total-markdown (0.2.0~alpha1) unstable; urgency=medium
+
+  * Initial alpha release: two-pane live preview (CommonMark + GFM),
+    syntax-highlighted code fences, LaTeX math, light/dark/system themes,
+    remote images with a disk cache, animated GIF and SVG badge playback.
+
+ -- Magomed Gadzhiumarov <magomedgadziumarov265@gmail.com>  Wed, 04 Nov 2026 23:50:41 +0300

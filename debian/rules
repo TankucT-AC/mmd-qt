@@ -1,0 +1,13 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+# Distro packages depend on the system KSyntaxHighlighting: shipping a second
+# copy of the engine would clash with the distro's own files. The portable
+# CPack build keeps bundling (the CMake option defaults to ON).
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DMMD_BUNDLE_KSYNTAX=OFF
+
+# The test suite drives widgets head-less.
+override_dh_auto_test:
+	QT_QPA_PLATFORM=offscreen dh_auto_test

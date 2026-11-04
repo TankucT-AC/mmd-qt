@@ -1,0 +1,32 @@
+# Maintainer: Magomed Gadzhiumarov <magomedgadziumarov265@gmail.com>
+
+pkgname=total-markdown
+pkgver=0.2.0alpha1
+pkgrel=1
+pkgdesc="A fast, native, two-pane Markdown viewer and editor"
+arch=('x86_64')
+url="https://github.com/TankucT-AC/total-markdown"
+license=('GPL3')
+depends=('qt6-base' 'qt6-svg' 'ksyntaxhighlighting')
+makedepends=('cmake' 'ninja' 'git')
+source=("git+https://github.com/TankucT-AC/total-markdown.git#tag=v0.2.0-alpha1")
+sha256sums=('SKIP')
+
+# Distro packages depend on the system KSyntaxHighlighting; the portable
+# CPack build keeps bundling (the CMake option defaults to ON).
+build() {
+  cmake -B build -S total-markdown \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMMD_BUNDLE_KSYNTAX=OFF \
+    -G Ninja
+  cmake --build build
+}
+
+check() {
+  QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}
