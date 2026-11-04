@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-FileCopyrightText: 2026 Total Markdown contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "viewer/MarkdownView.h"
@@ -530,7 +530,7 @@ void MarkdownView::rebuild()
     if (!built) {
         // A parse failure leaves the scratch in a partial state: keep showing
         // the previous render, exactly as the in-place build did.
-        qWarning("mmd: markdown parse failed; leaving the previous render in place");
+        qWarning("total-markdown: markdown parse failed; leaving the previous render in place");
         m_lastRenderMs = int(timer.elapsed());
         return;
     }

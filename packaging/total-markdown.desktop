@@ -1,12 +1,13 @@
 [Desktop Entry]
 Type=Application
-Name=mmd-qt
+Name=Total Markdown
 GenericName=Markdown Editor
 Comment=Two-pane Markdown viewer and editor built with Qt Widgets
-Exec=mmd %F
-Icon=mmd-qt
+Exec=total-markdown %F
+Icon=total-markdown
 Terminal=false
 Categories=Utility;TextEditor;Office;
-MimeType=text/markdown;
+MimeType=text/markdown;text/x-markdown;
 Keywords=markdown;md;editor;viewer;preview;
 StartupNotify=true
+StartupWMClass=total-markdown

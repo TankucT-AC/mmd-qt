@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-FileCopyrightText: 2026 Total Markdown contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <QtTest>
@@ -1159,7 +1159,7 @@ void MarkdownTest::readmeRendersWithoutLiteralHtml()
     render(&document, QString::fromUtf8(file.readAll()), QStringLiteral(MMD_SOURCE_DIR));
 
     const QString text = document.toPlainText();
-    QVERIFY(text.contains(QStringLiteral("mmd-qt")));
+    QVERIFY(text.contains(QStringLiteral("Total Markdown")));
     QVERIFY(text.contains(QStringLiteral("\u25B8 Table of contents")));
     // The hero's raw markup must be gone (the README documents the tags as
     // inline code, so check the actual markup, not the tag names).

@@ -1,6 +1,6 @@
-# mmd-qt reference documentation
+# Total Markdown reference documentation
 
-Generated reference for the classes and entry point of mmd-qt. Each page covers
+Generated reference for the classes and entry point of Total Markdown. Each page covers
 the public surface, ownership, threading and how the class fits into the app.
 
 ## Core (`src/core`)

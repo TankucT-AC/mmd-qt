@@ -2,7 +2,7 @@
 
 ## A. Overview
 
-The startup sequence of mmd-qt. It is a thin file by design: it configures the
+The startup sequence of Total Markdown. It is a thin file by design: it configures the
 `QApplication`, parses the command line, creates the single top-level
 `MainWindow`, opens an optional file and hands control to the event loop. All
 behaviour lives in the classes the window wires together, so nothing here needs
@@ -13,8 +13,8 @@ to be tested beyond an offscreen smoke run.
 A `QApplication` is created because the app is Widgets-based. Before the window
 is shown:
 
-- `setApplicationName("mmd")`, `setApplicationVersion("0.1.0")`,
-  `setOrganizationName("mmd-qt")` — identity used for settings and about text.
+- `setApplicationName("total-markdown")`, `setApplicationVersion("0.2.0")`,
+  `setOrganizationName("total-markdown")` — identity used for settings and about text.
 - `setStyle("Fusion")` — a consistent base style across desktops; the palette is
   then supplied by `ThemeManager`, so the look is identical on every platform.
 
@@ -58,7 +58,7 @@ returned from `main`.
 ## Usage
 
 ```sh
-mmd                       # empty window
-mmd notes.md              # open a file
-mmd --preview notes.md    # viewer-only
+total-markdown                       # empty window
+total-markdown notes.md              # open a file
+total-markdown --preview notes.md    # viewer-only
 ```

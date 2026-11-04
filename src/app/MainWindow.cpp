@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-FileCopyrightText: 2026 Total Markdown contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "app/MainWindow.h"
@@ -466,7 +466,7 @@ void MainWindow::updateWindowTitle()
 {
     const QString name = m_file->filePath().isEmpty() ? tr("Untitled") : QFileInfo(m_file->filePath()).fileName();
     const QString modified = m_editor->document()->isModified() ? QStringLiteral("*") : QString();
-    setWindowTitle(tr("%1%2 — mmd").arg(modified, name));
+    setWindowTitle(tr("%1%2 — Total Markdown").arg(modified, name));
 }
 
 bool MainWindow::openFile(const QString &path)
@@ -535,7 +535,7 @@ bool MainWindow::maybeSave()
         return true;
 
     const QMessageBox::StandardButton answer = QMessageBox::warning(this,
-                                                                    tr("mmd"),
+                                                                    tr("Total Markdown"),
                                                                     tr("The document has unsaved changes.\nDo you want to save them?"),
                                                                     QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
     if (answer == QMessageBox::Save)

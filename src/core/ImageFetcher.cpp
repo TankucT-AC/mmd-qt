@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 mmd-qt contributors
+// SPDX-FileCopyrightText: 2026 Total Markdown contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/ImageFetcher.h"
@@ -151,7 +151,7 @@ QString ImageFetcher::cacheDirectory() const
 {
     if (!m_cacheDirectory.isEmpty())
         return m_cacheDirectory;
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/mmd-qt/remote-images");
+    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/total-markdown/remote-images");
 }
 
 QString ImageFetcher::diskDataPath(const QUrl &url) const
