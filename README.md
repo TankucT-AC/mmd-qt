@@ -23,12 +23,20 @@ parsed by [md4c](https://github.com/mity/md4c) straight into a `QTextDocument`,
 which keeps the binary small, the startup instant and the rendering fully
 native.
 
-```text
-┌───────────────────────────────┬───────────────────────────────┐
-│  Markdown source              │  Rendered preview             │
-│  (syntax highlighted)         │  (CommonMark + GFM)           │
-└───────────────────────────────┴───────────────────────────────┘
-```
+<table>
+<tr>
+<td width="50%" valign="top"><img src="assets/screenshot-two-pane.png" alt="The feature showcase open in light mode: the markdown source with syntax highlighting on the left, the rendered preview on the right, the window split between the two panes" width="100%"><p align="center"><sub><b>Two panes.</b> Syntax-highlighted source beside the live CommonMark + GFM preview; either pane hides.</sub></p></td>
+<td width="50%" valign="top"><img src="assets/screenshot-dark-code.png" alt="A C++ example in dark mode, the fenced block in the preview tinted per language, keywords strings and comments in theme colours" width="100%"><p align="center"><sub><b>Dark mode.</b> Fenced code highlighted per language by KSyntaxHighlighting, coloured from a theme-matched palette.</sub></p></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><img src="assets/screenshot-math.png" alt="LaTeX source on the left and the typeset result on the right: Euler's identity inline, the Gaussian integral and quantum notation as display formulas" width="100%"><p align="center"><sub><b>LaTeX math.</b> Inline and display formulas typeset by the bundled MicroTeX engine as crisp, theme-coloured bitmaps.</sub></p></td>
+<td width="50%" valign="top"><img src="assets/screenshot-sidebar.png" alt="The sidebar dock showing an Outline tab with every heading of the showcase document nested by level, next to the rendered preview" width="100%"><p align="center"><sub><b>Sidebar.</b> An outline built from the headings and a file-browser tab; click an entry to jump, and the row follows your scroll.</sub></p></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><img src="assets/screenshot-gfm.png" alt="A shortcut table with inline code and strikethrough, checkboxes in a task list, a blue Note callout and autolinked URLs, rendered in the preview" width="100%"><p align="center"><sub><b>GFM.</b> Tables, task lists, strikethrough, autolinks and callouts, with the markdown kept in the source pane.</sub></p></td>
+<td width="50%" valign="top"><img src="assets/screenshot-find.png" alt="The find strip open over the source pane with the query markdown, a 1 of 8 counter, and every occurrence highlighted in the editor" width="100%"><p align="center"><sub><b>Find.</b> A strip over the focused pane: literal search, a match counter, match-case toggle and every hit highlighted in place.</sub></p></td>
+</tr>
+</table>
 
 > Curious what it looks like? Open [`feature-showcase.md`](feature-showcase.md)
 > — a single document that exercises every supported feature, with real image

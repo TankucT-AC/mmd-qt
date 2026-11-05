@@ -44,6 +44,15 @@ public:
     // Opens a document by path; returns false and reports the error otherwise.
     bool openFile(const QString &path);
 
+    // Shows or hides the sidebar dock, with its Outline tab current when
+    // shown. Readers toggle the dock with Ctrl+B; the screenshot harness
+    // calls this to frame the panel deliberately.
+    void setSidebarVisible(bool visible);
+
+    // Opens the find strip over the source pane with query pre-typed, as if
+    // the reader had focused the editor and pressed Ctrl+F and typed it.
+    void openFind(const QString &query);
+
     // Typesets the preview and the editor with the chosen families and keeps
     // the choice in QSettings. Blank families mean the bundled faces, so a
     // blank pair resets to them; the Fonts dialog funnels here.

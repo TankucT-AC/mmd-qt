@@ -480,6 +480,24 @@ bool MainWindow::openFile(const QString &path)
     return true;
 }
 
+void MainWindow::setSidebarVisible(bool visible)
+{
+    if (visible) {
+        if (auto *tabs = qobject_cast<QTabWidget *>(m_sidebar->widget()))
+            tabs->setCurrentIndex(0); // the Outline tab, not Files
+    }
+    m_sidebar->setVisible(visible);
+}
+
+void MainWindow::openFind(const QString &query)
+{
+    // The controller opens the bar of the pane that owns the keyboard focus,
+    // so put the caret side in front before asking for the strip.
+    m_editor->setFocus();
+    m_find->openForFocusedPane();
+    m_editorBar->setQuery(query); // FindBar runs the search as the user types
+}
+
 void MainWindow::openFileDialog()
 {
     if (!maybeSave())
